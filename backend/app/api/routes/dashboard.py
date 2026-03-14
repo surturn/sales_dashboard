@@ -33,6 +33,9 @@ def get_dashboard(current_user: User = Depends(get_current_user), db: Session = 
                 "domain": run.domain,
                 "workflow_name": run.workflow_name,
                 "status": run.status,
+                "records_processed": run.records_processed,
+                "records_created": run.records_created,
+                "execution_time": run.execution_time,
                 "started_at": run.started_at.isoformat(),
             }
             for run in recent_workflows

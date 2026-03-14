@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class LeadCreate(BaseModel):
+    name: str | None = None
     email: EmailStr | None = None
     phone: str | None = None
     first_name: str | None = None
@@ -21,6 +22,7 @@ class LeadRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    name: str | None = None
     email: EmailStr | None = None
     phone: str | None = None
     first_name: str | None = None

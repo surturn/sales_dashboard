@@ -11,10 +11,10 @@ Bizard Leads is an AI-powered outreach automation platform for SMBs. The repo fo
 
 Current integration workflow:
 
-- Lead discovery: LinkedIn / Google search via n8n
-- Email enrichment: Hunter API
+- Lead discovery: Google Maps scraping -> website parsing -> LinkedIn discovery
+- Email generation + verification: pattern generation + SMTP verification
 - CRM sync: HubSpot
-- Outreach delivery: Mailmeteor via n8n
+- Outreach delivery: Mailtrap SMTP
 - AI personalization: OpenAI
 
 ## Local backend

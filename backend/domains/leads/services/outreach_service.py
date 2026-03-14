@@ -35,6 +35,9 @@ def upsert_lead_from_contact(db: Session, contact: dict, user_id: int | None = N
         db.add(lead)
 
     lead.external_id = _contact_value(contact, "id")
+    lead.name = _contact_value(contact, "fullname", "full_name") or " ".join(
+        part for part in (_contact_value(contact, "firstname", "firstName", "first_name"), _contact_value(contact, "lastname", "lastName", "last_name")) if part
+    ) or None
     lead.email = email
     lead.phone = phone
     lead.first_name = _contact_value(contact, "firstname", "firstName", "first_name")

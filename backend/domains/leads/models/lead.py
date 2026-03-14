@@ -12,6 +12,7 @@ class Lead(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), index=True, nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

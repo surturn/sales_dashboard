@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api import auth, dashboard, leads, outreach, reports, social, webhooks, workflows
 from backend.app.config import get_settings
-from backend.app.core.rate_limit import RateLimitMiddleware
+from backend.app.core.rate_limit import RateLimitExceeded, SlowAPIMiddleware, limiter, rate_limit_exceeded_handler
 from backend.app.database import check_database_connection, init_db
 
 
@@ -25,7 +25,9 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.APP_NAME, version="1.0.0", lifespan=lifespan)
-    app.add_middleware(RateLimitMiddleware)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,

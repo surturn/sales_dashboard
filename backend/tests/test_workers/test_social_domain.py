@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from backend.app.core.cache import CacheBackend, build_cache_key
 from backend.models import Base, import_models
 from backend.domains.social.models.social_post import SocialPost
 from backend.domains.social.models.social_trend import SocialTrend
@@ -20,6 +21,7 @@ def build_session():
 
 def test_discover_trends_stores_results() -> None:
     db = build_session()
+    CacheBackend().delete(build_cache_key("social", "trends", 1, "ai sales test", "instagram", 5))
     fake_n8n = Mock()
     fake_n8n.trigger_workflow.return_value = {
         "trends": [
@@ -28,7 +30,7 @@ def test_discover_trends_stores_results() -> None:
     }
 
     with patch("backend.domains.social.services.trend_service.N8NClient", return_value=fake_n8n):
-        result = discover_trends(db, topic="ai sales", user_id=1, platforms=["instagram"], limit=5)
+        result = discover_trends(db, topic="ai sales test", user_id=1, platforms=["instagram"], limit=5)
 
     assert result["count"] == 1
     assert db.query(SocialTrend).count() == 1

@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderAppShell({
     active: "leads",
     title: "Lead Pipeline",
-    subtitle: "n8n-discovered LinkedIn and Google leads land here before Hunter enrichment and outreach.",
+    subtitle: "Google Maps, website parsing, LinkedIn discovery, and SMTP verification feed the verified lead queue here.",
     content: `
       <div class="grid cols-2">
         <div class="card">

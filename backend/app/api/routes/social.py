@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from backend.app.core.dependencies import get_current_user
+from backend.app.core.rate_limit import limiter
 from backend.app.database import get_db
 from backend.domains.social.services.analytics_service import get_cached_social_dashboard
 from backend.domains.social.services.content_service import approve_post, create_post_from_trend, publish_post
@@ -20,12 +21,15 @@ router = APIRouter(prefix="/social", tags=["social"])
 
 
 @router.get("/dashboard")
-def get_social_dashboard(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+@limiter.limit("60/minute")
+def get_social_dashboard(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     return get_cached_social_dashboard(db, user_id=current_user.id)
 
 
 @router.get("/trends", response_model=list[SocialTrendRead])
+@limiter.limit("60/minute")
 def get_trends(
+    request: Request,
     platform: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -35,22 +39,26 @@ def get_trends(
 
 
 @router.post("/trends/discover", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("12/minute")
 def run_trend_discovery(
-    request: TrendDiscoveryRequest,
+    request: Request,
+    payload: TrendDiscoveryRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     return discover_trends(
         db,
-        topic=request.topic,
+        topic=payload.topic,
         user_id=current_user.id,
-        platforms=request.platforms,
-        limit=request.limit,
+        platforms=payload.platforms,
+        limit=payload.limit,
     )
 
 
 @router.get("/posts", response_model=list[SocialPostRead])
+@limiter.limit("60/minute")
 def get_posts(
+    request: Request,
     platform: str | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -60,19 +68,22 @@ def get_posts(
 
 
 @router.post("/posts", response_model=SocialPostRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 def create_post(
-    request: SocialPostCreateRequest,
+    request: Request,
+    payload: SocialPostCreateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     try:
-        return create_post_from_trend(db, trend_id=request.trend_id, platform=request.platform, user_id=current_user.id)
+        return create_post_from_trend(db, trend_id=payload.trend_id, platform=payload.platform, user_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/posts/{post_id}/approve", response_model=SocialPostRead)
-def approve_social_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+def approve_social_post(request: Request, post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         return approve_post(db, post_id=post_id, user_id=current_user.id)
     except ValueError as exc:
@@ -80,13 +91,15 @@ def approve_social_post(post_id: int, current_user: User = Depends(get_current_u
 
 
 @router.post("/posts/{post_id}/publish", response_model=SocialPostRead)
+@limiter.limit("20/minute")
 def publish_social_post(
+    request: Request,
     post_id: int,
-    request: SocialPublishRequest,
+    payload: SocialPublishRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     try:
-        return publish_post(db, post_id=post_id, user_id=current_user.id, schedule_for=request.schedule_for)
+        return publish_post(db, post_id=post_id, user_id=current_user.id, schedule_for=payload.schedule_for)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

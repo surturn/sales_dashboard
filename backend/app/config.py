@@ -33,29 +33,42 @@ class Settings(BaseSettings):
     CACHE_TRENDS_TTL_SECONDS: int = 900
     RATE_LIMIT_CAPACITY: int = 60
     RATE_LIMIT_REFILL_RATE: float = 1.0
+    RATE_LIMIT_DEFAULT: str = "60/minute"
+    RATE_LIMIT_AUTH: str = "10/minute"
+    RATE_LIMIT_WORKFLOWS: str = "20/minute"
+    RATE_LIMIT_WEBHOOKS: str = "30/minute"
 
     JWT_SECRET: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRES_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRES_DAYS: int = 30
+    ACCESS_TOKEN_COOKIE_NAME: str = "bizard_access_token"
+    REFRESH_TOKEN_COOKIE_NAME: str = "bizard_refresh_token"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
-    HUNTER_API_KEY: str = ""
     HUBSPOT_API_KEY: str = ""
     HUBSPOT_WEBHOOK_SECRET: str = ""
-    MAILMETEOR_API_KEY: str = ""
     CHATWOOT_API_KEY: str = ""
+    MAILTRAP_HOST: str = ""
+    MAILTRAP_PORT: int = 2525
+    MAILTRAP_USERNAME: str = ""
+    MAILTRAP_PASSWORD: str = ""
 
-    HUNTER_BASE_URL: str = "https://api.hunter.io/v2"
     HUBSPOT_BASE_URL: str = "https://api.hubapi.com"
     CHATWOOT_BASE_URL: str = "https://app.chatwoot.com/api/v1"
     N8N_WEBHOOK_BASE: str = "http://localhost:5678/webhook"
-    LEAD_DISCOVERY_WEBHOOK_PATH: str = "lead-discovery"
-    MAILMETEOR_WEBHOOK_PATH: str = "mailmeteor/send"
     SOCIAL_TRENDS_WEBHOOK_PATH: str = "social/trends"
     SOCIAL_PUBLISH_WEBHOOK_PATH: str = "social/publish"
     SOCIAL_ANALYTICS_WEBHOOK_PATH: str = "social/analytics"
+    PLAYWRIGHT_HEADLESS: bool = True
+    MAPS_SCRAPE_DELAY_SECONDS: float = 2.0
+    WEBSITE_PARSE_DELAY_SECONDS: float = 1.0
+    LINKEDIN_SCRAPE_DELAY_SECONDS: float = 5.0
+    SMTP_VERIFY_PER_MINUTE: int = 10
+    LEAD_PIPELINE_BATCH_SIZE: int = 20
 
     EMAIL_FROM: str = "noreply@bizardleads.local"
     REPORT_RECIPIENT_EMAIL: str = "founder@bizardleads.local"
