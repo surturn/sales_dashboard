@@ -131,3 +131,12 @@ return source_leads_task.delay(query=query, user_id=user_id)  # fallback
 - Phase 6: Qdrant RAG infrastructure
 - Phase 7: Support and Reporting agents with ICP learning loop
 - Phase 8–11: Testing, CI/CD, Docker, and handoff
+
+## Production Readiness
+
+- **LangGraph checkpointer required in production:** agents rely on LangGraph's Redis checkpointer (AsyncRedisSaver) for durable checkpoints. The application will fail-fast at startup in `production` if the checkpointer cannot be initialized. Ensure `langgraph` and `langgraph-checkpoint` are installed in production.
+- **Redis required:** the agent checkpointer persists to Redis; configure `REDIS_URL` in your environment (see `.env.example`). `docker compose` now includes Redis and healthchecks.
+- **Readiness probe:** the backend exposes `/ready` which verifies DB connectivity and the LangGraph checkpointer. Use this for orchestration readiness checks.
+- **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) runs the test suite with Postgres and Redis services. The `openai` dependency pin was relaxed to `openai>=1.54.0,<2.0.0` to satisfy transitive requirements from `langchain-openai`.
+
+These changes make agent-based runs production-resilient by ensuring durable checkpoints and startup-time verification of critical dependencies.
