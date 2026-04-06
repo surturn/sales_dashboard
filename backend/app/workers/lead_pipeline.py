@@ -1,7 +1,7 @@
 import json
 import time
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -105,7 +105,7 @@ def run_lead_pipeline(db: Session, query: str, user_id: int | None = None, limit
         workflow_run.records_processed = records_processed
         workflow_run.records_created = records_created
         workflow_run.execution_time = round(time.perf_counter() - started_at, 3)
-        workflow_run.completed_at = datetime.utcnow()
+        workflow_run.completed_at = datetime.now(timezone.utc)
         workflow_run.payload = json.dumps(
             {
                 "query": query,
@@ -129,7 +129,7 @@ def run_lead_pipeline(db: Session, query: str, user_id: int | None = None, limit
         workflow_run.records_created = records_created
         workflow_run.execution_time = round(time.perf_counter() - started_at, 3)
         workflow_run.error_message = str(exc)
-        workflow_run.completed_at = datetime.utcnow()
+        workflow_run.completed_at = datetime.now(timezone.utc)
         db.add(workflow_run)
         db.commit()
         raise

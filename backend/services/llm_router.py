@@ -22,6 +22,7 @@ import redis.asyncio as aioredis
 
 from backend.app.config import get_settings
 from backend.app.core.observability import get_logger
+from backend.app.core.retry import with_retry, circuit_breaker
 
 settings = get_settings()
 log = get_logger(__name__)
@@ -76,12 +77,17 @@ async def call_llm(
     model_name = TASK_MODEL_MAP.get(task, settings.GROQ_MODEL_FAST)
 
     try:
-        groq = ChatGroq(
-            model=model_name,
-            api_key=settings.GROQ_API_KEY,
-            max_tokens=settings.LLM_MAX_TOKENS_PER_NODE,
-        )
-        result = await groq.ainvoke(messages)
+        # Wrap Groq invocation with retries + circuit breaker
+        @with_retry(service="groq")
+        async def _invoke_groq(msgs):
+            groq = ChatGroq(
+                model=model_name,
+                api_key=settings.GROQ_API_KEY,
+                max_tokens=settings.LLM_MAX_TOKENS_PER_NODE,
+            )
+            return await groq.ainvoke(msgs)
+
+        result = await _invoke_groq(messages)
         text = result.content
         log.info("llm_groq_success", task=task, model=model_name, tokens=len(prompt.split()))
 
@@ -89,12 +95,16 @@ async def call_llm(
         # 4. Groq failed (rate limit, network, etc.) — fall back to OpenAI
         log.warning("llm_groq_failed_fallback", task=task, error=str(groq_err))
         try:
-            oai = ChatOpenAI(
-                model=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
-                api_key=settings.OPENAI_API_KEY,
-                max_tokens=settings.LLM_MAX_TOKENS_PER_NODE,
-            )
-            result = await oai.ainvoke(messages)
+            @with_retry(service="openai")
+            async def _invoke_openai(msgs):
+                oai = ChatOpenAI(
+                    model=getattr(settings, "OPENAI_MODEL", "gpt-4o-mini"),
+                    api_key=settings.OPENAI_API_KEY,
+                    max_tokens=settings.LLM_MAX_TOKENS_PER_NODE,
+                )
+                return await oai.ainvoke(msgs)
+
+            result = await _invoke_openai(messages)
             text = result.content
             log.info("llm_openai_fallback_success", task=task)
         except Exception as oai_err:

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ def _record_run(db: Session, user_id: int | None, status: str, payload: dict, er
         status=status,
         payload=json.dumps(payload),
         error_message=error,
-        completed_at=datetime.utcnow() if status != "running" else None,
+        completed_at=datetime.now(timezone.utc) if status != "running" else None,
     )
     db.add(run)
     db.commit()

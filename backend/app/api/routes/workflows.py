@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -157,15 +157,19 @@ def get_workflow_status(
         elif async_result.state == "FAILURE" and run.status != "failed":
             run.status = "failed"
             run.error_message = str(async_result.result)
-            run.completed_at = run.completed_at or datetime.utcnow()
-            run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
+            run.completed_at = run.completed_at or datetime.now(timezone.utc)
+            from backend.app.core.timeutils import elapsed_seconds
+            et = elapsed_seconds(run.started_at, run.completed_at)
+            run.execution_time = round(et, 3) if et is not None else None
             db.add(run)
             db.commit()
             db.refresh(run)
         elif async_result.state == "REVOKED" and run.status != "stopped":
             run.status = "stopped"
-            run.completed_at = run.completed_at or datetime.utcnow()
-            run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
+            run.completed_at = run.completed_at or datetime.now(timezone.utc)
+            from backend.app.core.timeutils import elapsed_seconds
+            et = elapsed_seconds(run.started_at, run.completed_at)
+            run.execution_time = round(et, 3) if et is not None else None
             db.add(run)
             db.commit()
             db.refresh(run)
@@ -193,8 +197,10 @@ def stop_workflow(
         celery_app.control.revoke(task_id, terminate=True)
 
     run.status = "stopped"
-    run.completed_at = datetime.utcnow()
-    run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
+    run.completed_at = datetime.now(timezone.utc)
+    from backend.app.core.timeutils import elapsed_seconds
+    et = elapsed_seconds(run.started_at, run.completed_at)
+    run.execution_time = round(et, 3) if et is not None else None
     db.add(run)
     db.commit()
     db.refresh(run)

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -102,7 +102,7 @@ def publish_post(
     )
     post.publish_status = "scheduled" if schedule_for else "published"
     post.scheduled_for = schedule_for
-    post.published_at = None if schedule_for else datetime.utcnow()
+    post.published_at = None if schedule_for else datetime.now(timezone.utc)
     post.external_post_id = response.get("id") or response.get("post_id")
     post.metrics_json = json.dumps(response)
     db.add(post)

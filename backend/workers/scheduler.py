@@ -5,12 +5,22 @@ from backend.workers.hubspot_sync_deals import sync_hubspot_companies_task, sync
 from backend.workers.lead_sourcing import source_leads_task
 from backend.workers.reporting import generate_weekly_report_task
 
+# Try agent entrypoints first (minimal reversible stubs). If agents return
+# False or raise, we fall back to the existing Celery tasks.
+from backend.app.agents.entrypoints import try_run_lead_sourcing, try_run_weekly_report
+
 
 def trigger_lead_sourcing(query: str, user_id: int | None = None):
+    handled = try_run_lead_sourcing(query=query, user_id=user_id)
+    if handled:
+        return {"status": "agent_handled"}
     return source_leads_task.delay(query=query, user_id=user_id)
 
 
 def trigger_weekly_report():
+    handled = try_run_weekly_report()
+    if handled:
+        return {"status": "agent_handled"}
     return generate_weekly_report_task.delay()
 
 
