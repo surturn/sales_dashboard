@@ -134,7 +134,7 @@ return source_leads_task.delay(query=query, user_id=user_id)  # fallback
 
 ## Production Readiness
 
-- **LangGraph checkpointer required in production:** agents rely on LangGraph's Redis checkpointer (AsyncRedisSaver) for durable checkpoints. The application will fail-fast at startup in `production` if the checkpointer cannot be initialized. Ensure `langgraph` and `langgraph-checkpoint` are installed in production.
+- **LangGraph checkpointer required in production:** agents rely on LangGraph's Redis checkpointer (AsyncRedisSaver) for durable checkpoints. The application will fail-fast at startup in `production` if the checkpointer cannot be initialized. Ensure `langgraph` and the Redis checkpoint package (`langgraph-checkpoint-redis`) are installed in production. The CI workflow installs dependencies from `backend/requirements.txt`, which now includes `langgraph-checkpoint-redis`, so tests that import the checkpoint module succeed.
 - **Redis required:** the agent checkpointer persists to Redis; configure `REDIS_URL` in your environment (see `.env.example`). `docker compose` now includes Redis and healthchecks.
 - **Readiness probe:** the backend exposes `/ready` which verifies DB connectivity and the LangGraph checkpointer. Use this for orchestration readiness checks.
 - **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) runs the test suite with Postgres and Redis services. The `openai` dependency pin was relaxed to `openai>=1.54.0,<2.0.0` to satisfy transitive requirements from `langchain-openai`.
