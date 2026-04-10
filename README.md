@@ -9,20 +9,21 @@ Bizard Leads is an AI-powered outreach automation platform for SMBs. The repo fo
 - `frontend` for the static dashboard and auth pages
 - `infra` for nginx and compose-related support files
 
-## Architecture (Phase 1: LangGraph Agents Scaffolding)
+## Architecture (Current State: Through Phase 4)
 
-Bizard Leads is being refactored to replace n8n automation with **LangGraph agents**. Phase 1 provides:
+Bizard Leads is being refactored to replace n8n automation with **LangGraph agents**. The repo currently includes the Phase 1-4 foundation:
 
-- **`backend/app/agents/`**: New agent package with LangGraph StateGraph implementations (replacing n8n workflows).
-- **Agent entrypoints**: Minimal stubs in `backend/app/agents/entrypoints.py` that are tried first, with fallback to existing Celery workers.
-- **Shared agent base** (`backend/app/agents/base.py`): TypedDicts, Redis checkpointer factory, agent result wrappers.
-- **LLM router** (`backend/services/llm_router.py`): Unified entry point for LLM calls (delegates to OpenAI; Groq + fallback in later phases).
-- **Core utilities** (`backend/app/core/observability.py`, `backend/app/core/retry.py`): Minimal logging and retry stubs.
-- **Approval routing** (`backend/app/api/routes/approvals.py`): Stubs for future human-in-the-loop outreach approval.
+- **`backend/app/agents/`**: Agent package with LangGraph-compatible lead discovery and lead scorer implementations.
+- **Agent entrypoints**: Scheduler and webhook paths try agents first, then safely fall back to existing Celery workers.
+- **Shared agent base** (`backend/app/agents/base.py`): TypedDicts, thread ids, agent result wrappers, and optional Redis checkpointer loading.
+- **LLM router** (`backend/services/llm_router.py`): Unified async entry point for LLM calls with Groq-primary / OpenAI-fallback behaviour.
+- **Core utilities** (`backend/app/core/observability.py`, `backend/app/core/retry.py`): Structured logging, Sentry init, retries, and circuit breaker support.
+- **Approval routing** (`backend/app/api/routes/approvals.py`): Stub endpoints reserved for the future human-in-the-loop outreach gate.
 
 ### Current integration workflow:
 
-- **Lead discovery**: Google Maps scraping -> website parsing -> LinkedIn discovery (Celery fallback; LangGraph agent scaffolded)
+- **Lead discovery**: ICP loading -> multi-source retrieval -> triangulation -> deduplication -> PRIME scoring -> HubSpot sync
+- **Lead scorer**: Two-pass scoring with first-pass batch scoring and a focused self-critique pass on top-tier leads
 - **Email generation + verification**: pattern generation + SMTP verification
 - **CRM sync**: HubSpot
 - **Outreach delivery**: Mailtrap SMTP (approval gate scaffolded for Phase 5)
@@ -56,7 +57,7 @@ cp .env.example .env
 Required keys:
 - **Core**: `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`
 - **Existing integrations**: `OPENAI_API_KEY`, `HUBSPOT_ACCESS_TOKEN`, `CHATWOOT_API_KEY`
-- **Phase 1 (LLM router)**: `GROQ_API_KEY` (optional; uses OpenAI fallback if not set)
+- **Phase 1-4 (agent runtime)**: `GROQ_API_KEY` (optional; uses OpenAI fallback if not set)
 - **Phase 2+**: `TAVILY_API_KEY` (intent signals), `QDRANT_HOST`/`PORT`/`QDRANT_API_KEY` (vector DB), `SENTRY_DSN` (error tracking)
 
 ### Local backend
@@ -86,7 +87,8 @@ Services:
 - Flower (Celery monitor): http://localhost:5555
 - Postgres: localhost:5432
 - Redis: localhost:6379
-- Qdrant (Phase 2+): localhost:6333
+- n8n: http://localhost:5678
+- Qdrant (planned, not yet in compose): localhost:6333
 
 ## Testing
 
@@ -96,7 +98,7 @@ Run the test suite locally:
 python -m pytest -q
 ```
 
-All 25 tests should pass. Tests include smoke tests, HubSpot webhook handlers, and workflow dispatch.
+The current backend suite should pass locally. At the time of writing, the repo has **31 passing backend tests** covering smoke checks, workers, services, retry behaviour, and agent scoring/wiring.
 
 ## Agent Entrypoint Fallback Mechanism
 
@@ -114,19 +116,18 @@ if handled:
 return source_leads_task.delay(query=query, user_id=user_id)  # fallback
 ```
 
-## Phase 1 Status
+## Phase Status
 
-✅ **Done**:
-- Scaffolded `backend/app/agents/` with base types, llm_router, observability, retry stubs
+✅ **Implemented through Phase 4 foundation**:
+- Scaffolded `backend/app/agents/` with shared base types and agent entrypoints
 - Extended `backend/app/config.py` with Groq, Tavily, Qdrant, Sentry, and agent tuning settings
-- Updated `.env.example` with all new variables
+- Added the async LLM router, observability layer, and retry/circuit-breaker utilities
+- Implemented the lead discovery agent with ICP loading, multi-source retrieval, triangulation, deduplication, scoring, and HubSpot sync
+- Implemented the Phase 4 PRIME lead scorer and wired it into the active lead discovery path
 - Wired scheduler and webhook routes to agent entrypoints with safe fallbacks
-- All existing tests pass (25 passed)
+- Current backend tests pass locally (31 passed)
 
-⏳ **Next** (Phases 2–11):
-- Phase 2: LLM router (Groq primary, OpenAI fallback, caching)
-- Phase 3: Lead Discovery agent (multi-source retrieval, Tavily signals, triangulation)
-- Phase 4: Lead Scorer agent (PRIME two-pass scoring)
+⏳ **Next**:
 - Phase 5: Outreach agent (email generation, human approval gate)
 - Phase 6: Qdrant RAG infrastructure
 - Phase 7: Support and Reporting agents with ICP learning loop
@@ -134,9 +135,9 @@ return source_leads_task.delay(query=query, user_id=user_id)  # fallback
 
 ## Production Readiness
 
-- **LangGraph checkpointer required in production:** agents rely on LangGraph's Redis checkpointer (AsyncRedisSaver) for durable checkpoints. The application will fail-fast at startup in `production` if the checkpointer cannot be initialized. Ensure `langgraph` and the Redis checkpoint package (`langgraph-checkpoint-redis`) are installed in production. The CI workflow installs dependencies from `backend/requirements.txt`, which now includes `langgraph-checkpoint-redis`, so tests that import the checkpoint module succeed.
-- **Redis required:** the agent checkpointer persists to Redis; configure `REDIS_URL` in your environment (see `.env.example`). `docker compose` now includes Redis and healthchecks.
+- **Redis is still required:** the app depends on Redis for Celery and agent fallback checkpoint storage; configure `REDIS_URL` in your environment (see `.env.example`). `docker compose` includes Redis and healthchecks.
+- **Redis LangGraph saver is optional in this checkpoint:** the repo now loads the LangGraph Redis saver lazily. If `langgraph-checkpoint-redis` is not installed, the app can still install, test, and run with fallback behaviour. Durable LangGraph checkpointing can be enabled later by installing that optional package once version compatibility is settled.
 - **Readiness probe:** the backend exposes `/ready` which verifies DB connectivity and the LangGraph checkpointer. Use this for orchestration readiness checks.
-- **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) runs the test suite with Postgres and Redis services. The `openai` dependency pin was relaxed to `openai>=1.54.0,<2.0.0` to satisfy transitive requirements from `langchain-openai`.
+- **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) runs the test suite with Postgres and Redis services. The `openai` dependency pin was relaxed to `openai>=1.54.0,<2.0.0` to satisfy transitive requirements from `langchain-openai`, and the incompatible Redis checkpoint package pin was removed from the default install set.
 
-These changes make agent-based runs production-resilient by ensuring durable checkpoints and startup-time verification of critical dependencies.
+These changes keep the current agent-based rollout installable and testable while preserving the option to add durable Redis-backed LangGraph checkpoints later.

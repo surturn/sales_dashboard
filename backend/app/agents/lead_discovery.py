@@ -370,6 +370,63 @@ async def dedup_filter(state: LeadDiscoveryState) -> LeadDiscoveryState:
         return {**state, "deduplicated_leads": state.get("triangulated_leads") or [], "errors": errors}
 
 
+async def score_leads(state: LeadDiscoveryState) -> LeadDiscoveryState:
+    """Apply the Phase 4 PRIME scorer to the deduplicated leads.
+
+    The lead scorer was implemented in Phase 4, but it needs to sit on
+    the active lead discovery path rather than only inside the legacy
+    sequential helper. This node keeps the agent-first flow intact while
+    preserving a direct node-level fallback when the compiled scorer
+    graph is unavailable.
+    """
+    scorer_initial = {
+        "user_id": state.get("user_id"),
+        "icp_profile": state.get("icp_profile") or {},
+        "leads_to_score": state.get("deduplicated_leads") or [],
+        "scored_leads": [],
+        "critiqued_leads": [],
+        "errors": [],
+    }
+
+    if not scorer_initial["leads_to_score"]:
+        return state
+
+    try:
+        from backend.app.agents.lead_scorer import build_scorer_graph
+
+        scorer_graph = await build_scorer_graph()
+        scorer_result = await scorer_graph.ainvoke(scorer_initial)
+        scored_leads = (
+            scorer_result.get("critiqued_leads")
+            or scorer_result.get("scored_leads")
+            or scorer_initial["leads_to_score"]
+        )
+        scorer_errors = list(scorer_result.get("errors") or [])
+    except Exception as exc:
+        log.warning("scorer_graph_unavailable_fallback", error=str(exc))
+        try:
+            from backend.app.agents.lead_scorer import first_pass_scorer, self_critique_scorer
+
+            scorer_state = await first_pass_scorer(scorer_initial)
+            scorer_state = await self_critique_scorer(scorer_state)
+            scored_leads = (
+                scorer_state.get("critiqued_leads")
+                or scorer_state.get("scored_leads")
+                or scorer_initial["leads_to_score"]
+            )
+            scorer_errors = list(scorer_state.get("errors") or [])
+        except Exception as fallback_exc:
+            log.error("scorer_nodes_failed", error=str(fallback_exc))
+            scored_leads = scorer_initial["leads_to_score"]
+            scorer_errors = [f"scorer_failed: {str(fallback_exc)}"]
+
+    return {
+        **state,
+        "deduplicated_leads": scored_leads,
+        "errors": list(state.get("errors") or []) + scorer_errors,
+    }
+
+
 @with_retry(max_attempts=3)
 async def hubspot_sync(state: LeadDiscoveryState) -> LeadDiscoveryState:
     """Chunk deduplicated leads and sync to HubSpot, persisting to Postgres per chunk.
@@ -566,43 +623,7 @@ async def _run_lead_discovery_sequential(user_id: int | None = None, query: str 
     await _save_checkpoint(run_uuid, "deduplicated", state)
 
     # Node: Lead Scorer (PRIME two-pass)
-    try:
-        # Try agent-first compiled graph when available
-        from backend.app.agents.lead_scorer import build_scorer_graph
-
-        scorer_graph = await build_scorer_graph()
-        scorer_initial = {
-            "user_id": state.get("user_id"),
-            "icp_profile": state.get("icp_profile") or {},
-            "leads_to_score": state.get("deduplicated_leads") or [],
-            "scored_leads": [],
-            "critiqued_leads": [],
-            "errors": [],
-        }
-        scorer_result = await scorer_graph.ainvoke(scorer_initial)
-        new_leads = scorer_result.get("critiqued_leads") or scorer_result.get("scored_leads") or scorer_initial["leads_to_score"]
-        state["deduplicated_leads"] = new_leads
-    except Exception as exc:
-        # Fallback: call the scorer nodes directly
-        log.warning("scorer_graph_unavailable_fallback", error=str(exc))
-        try:
-            from backend.app.agents.lead_scorer import first_pass_scorer, self_critique_scorer
-
-            scorer_state = {
-                "user_id": state.get("user_id"),
-                "icp_profile": state.get("icp_profile") or {},
-                "leads_to_score": state.get("deduplicated_leads") or [],
-                "scored_leads": [],
-                "critiqued_leads": [],
-                "errors": [],
-            }
-            scorer_state = await first_pass_scorer(scorer_state)
-            scorer_state = await self_critique_scorer(scorer_state)
-            state["deduplicated_leads"] = scorer_state.get("critiqued_leads") or scorer_state.get("scored_leads") or state.get("deduplicated_leads")
-            state["errors"] = list(state.get("errors") or []) + list(scorer_state.get("errors") or [])
-        except Exception as e2:
-            log.error("scorer_nodes_failed", error=str(e2))
-            state["errors"] = list(state.get("errors") or []) + [f"scorer_failed: {str(e2)}"]
+    state = await score_leads(state)
 
     await _save_checkpoint(run_uuid, "scored", state)
 
@@ -633,12 +654,14 @@ async def build_lead_discovery_graph():
     g.add_node("multi_source_retriever", multi_source_retriever)
     g.add_node("triangulation_validator", triangulation_validator)
     g.add_node("dedup_filter", dedup_filter)
+    g.add_node("score_leads", score_leads)
     g.add_node("hubspot_sync", hubspot_sync)
     g.set_entry_point("icp_loader")
     g.add_edge("icp_loader", "multi_source_retriever")
     g.add_edge("multi_source_retriever", "triangulation_validator")
     g.add_edge("triangulation_validator", "dedup_filter")
-    g.add_edge("dedup_filter", "hubspot_sync")
+    g.add_edge("dedup_filter", "score_leads")
+    g.add_edge("score_leads", "hubspot_sync")
     g.add_edge("hubspot_sync", END)
 
     checkpointer = await get_checkpointer()

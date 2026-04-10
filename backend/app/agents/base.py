@@ -5,16 +5,17 @@ imports: the `AgentResult` wrapper, common `LeadRecord` schema, a
 `make_thread_id` helper, and an async `get_checkpointer()` factory that
 returns a LangGraph-compatible Redis checkpointer.
 
-The implementation here targets the Phase 1 plan: it uses
-`langgraph.checkpoint.redis.aio.AsyncRedisSaver` when available and
-provides a clear error if the LangGraph package is not installed yet.
+The Redis checkpointer package is intentionally optional. The repo can
+still run agents with graceful fallback behaviour when that package is
+absent, which keeps local development and CI unblocked while the graph
+logic continues to mature.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict, Optional, Any
+import importlib
 import uuid
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from backend.app.config import get_settings
 
@@ -47,15 +48,26 @@ async def get_checkpointer() -> Any:
     """Create and return an AsyncRedisSaver connected to `settings.REDIS_URL`.
 
     The returned object implements the checkpointer interface expected by
-    LangGraph graphs (async setup + async save/load). If LangGraph is not
-    installed, a RuntimeError is raised with a helpful message.
+    LangGraph graphs (async setup + async save/load). If the optional
+    Redis saver package is not installed, a RuntimeError is raised with a
+    clear message and callers can fall back to non-checkpointer paths.
     """
-    if AsyncRedisSaver is None:
+    try:
+        redis_checkpoint_module = importlib.import_module("langgraph.checkpoint.redis.aio")
+        async_redis_saver = getattr(redis_checkpoint_module, "AsyncRedisSaver", None)
+    except Exception as exc:
         raise RuntimeError(
-            "LangGraph AsyncRedisSaver is not available. Install 'langgraph' to enable agent checkpoints."
+            "LangGraph AsyncRedisSaver is not available. Install the optional "
+            "'langgraph-checkpoint-redis' package to enable durable agent checkpoints."
+        ) from exc
+
+    if async_redis_saver is None:
+        raise RuntimeError(
+            "LangGraph AsyncRedisSaver could not be imported from "
+            "'langgraph.checkpoint.redis.aio'."
         )
 
-    checkpointer = AsyncRedisSaver.from_conn_string(settings.REDIS_URL)
+    checkpointer = async_redis_saver.from_conn_string(settings.REDIS_URL)
     # Ensure any internal async setup is performed before returning.
     await checkpointer.asetup()
     return checkpointer
