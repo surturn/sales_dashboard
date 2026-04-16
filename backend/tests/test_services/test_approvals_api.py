@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from pathlib import Path
+import os
 import tempfile
 
 from fastapi.testclient import TestClient
@@ -16,8 +17,9 @@ from backend.models.user import User
 
 def build_test_app():
     import_models()
-    tmpdir = tempfile.TemporaryDirectory()
-    db_path = Path(tmpdir.name) / "approvals_test.db"
+    fd, db_file = tempfile.mkstemp(prefix="approvals_test_", suffix=".db", dir=str(Path.cwd()))
+    os.close(fd)
+    db_path = Path(db_file)
     engine = create_engine(f"sqlite:///{db_path.as_posix()}", future=True, connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(engine)
@@ -39,11 +41,11 @@ def build_test_app():
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: current_user
-    return app, db, current_user, tmpdir
+    return app, db, current_user, db_path, engine
 
 
 def test_list_pending_approvals_returns_queue_rows():
-    app, db, user, tmpdir = build_test_app()
+    app, db, user, db_path, engine = build_test_app()
     try:
         db.add(
             OutreachApprovalQueue(
@@ -68,11 +70,15 @@ def test_list_pending_approvals_returns_queue_rows():
         assert payload["pending"][0]["lead_email"] == "lead@example.com"
     finally:
         db.close()
-        tmpdir.cleanup()
+        engine.dispose()
+        try:
+            db_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass
 
 
 def test_approve_and_reject_resume_graph(monkeypatch):
-    app, db, user, tmpdir = build_test_app()
+    app, db, user, db_path, engine = build_test_app()
     try:
         db.add(
             OutreachApprovalQueue(
@@ -134,4 +140,8 @@ def test_approve_and_reject_resume_graph(monkeypatch):
         assert fake_graph.updated[1][1]["approved"] is False
     finally:
         db.close()
-        tmpdir.cleanup()
+        engine.dispose()
+        try:
+            db_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass
