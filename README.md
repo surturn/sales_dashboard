@@ -1,143 +1,237 @@
 # Bizard Leads
 
-Bizard Leads is an AI-powered outreach automation platform for SMBs. The repo follows a layered monolith shape:
+Bizard Leads is an outreach automation platform built around FastAPI, Celery, PostgreSQL, Redis, and a static frontend. The repository is in the middle of a staged migration from n8n-based workflow orchestration to LangGraph-based agents.
 
-- `backend/app/api/routes` for FastAPI endpoints
-- `backend/services` for integrations and business logic
-- `backend/workers` for Celery workflows
-- `backend/models` and `backend/migrations` for persistence
-- `frontend` for the static dashboard and auth pages
-- `infra` for nginx and compose-related support files
+The current codebase includes the foundational agent infrastructure, a production-style lead discovery pipeline with scoring, and the first approval-gated outreach agent components. Legacy workers remain in place as operational fallbacks while the agent rollout continues.
 
-## Architecture (Current State: Through Phase 4)
+## Overview
 
-Bizard Leads is being refactored to replace n8n automation with **LangGraph agents**. The repo currently includes the Phase 1-4 foundation:
+The system combines:
 
-- **`backend/app/agents/`**: Agent package with LangGraph-compatible lead discovery and lead scorer implementations.
-- **Agent entrypoints**: Scheduler and webhook paths try agents first, then safely fall back to existing Celery workers.
-- **Shared agent base** (`backend/app/agents/base.py`): TypedDicts, thread ids, agent result wrappers, and optional Redis checkpointer loading.
-- **LLM router** (`backend/services/llm_router.py`): Unified async entry point for LLM calls with Groq-primary / OpenAI-fallback behaviour.
-- **Core utilities** (`backend/app/core/observability.py`, `backend/app/core/retry.py`): Structured logging, Sentry init, retries, and circuit breaker support.
-- **Approval routing** (`backend/app/api/routes/approvals.py`): Stub endpoints reserved for the future human-in-the-loop outreach gate.
+- A FastAPI application for API endpoints and dashboard data
+- Celery workers and scheduled tasks for background processing
+- PostgreSQL for persistent application data
+- Redis for Celery broker/backend and agent fallback checkpoint storage
+- A static frontend served through Nginx in containerized environments
+- Existing n8n workflows that are being replaced incrementally by LangGraph agents
 
-### Current integration workflow:
+## Current State
 
-- **Lead discovery**: ICP loading -> multi-source retrieval -> triangulation -> deduplication -> PRIME scoring -> HubSpot sync
-- **Lead scorer**: Two-pass scoring with first-pass batch scoring and a focused self-critique pass on top-tier leads
-- **Email generation + verification**: pattern generation + SMTP verification
-- **CRM sync**: HubSpot
-- **Outreach delivery**: Mailtrap SMTP (approval gate scaffolded for Phase 5)
-- **AI personalization**: OpenAI (via llm_router; Groq + fallback in Phase 2)
-- **Reporting**: weekly summaries (Celery fallback; LangGraph agent scaffolded)
-- **Support**: Chatwoot AI responses (Celery fallback; LangGraph + Qdrant RAG in Phase 6)
+The repository currently reflects the following implementation state:
 
-## Setup
+- Phase 1: shared agent scaffolding, settings, and environment extensions
+- Phase 2: LLM routing, retry behavior, and observability foundations
+- Phase 3: lead discovery agent structure and multi-source retrieval flow
+- Phase 4: lead scoring agent, now wired into the active lead discovery path
+- Phase 5: outreach agent foundation with approval queue persistence and approval API endpoints
 
-### Step 1: Create and activate virtual environment
+The following work is not complete yet:
+
+- Full outreach production integration across all trigger paths
+- Qdrant-backed retrieval and embeddings infrastructure
+- Support and reporting agents
+- Final Docker handoff state without n8n
+- End-to-end CI/CD and deployment hardening beyond the current test workflow
+
+At the time of writing, the backend test suite passes locally with `36` passing tests.
+
+## Architecture
+
+### Application Layers
+
+- `backend/app/api/routes`
+  FastAPI route handlers and request/response orchestration
+- `backend/services`
+  External integrations and shared service utilities
+- `backend/workers`
+  Celery entrypoints and scheduled task integrations
+- `backend/domains`
+  Domain-specific services, workers, and models
+- `backend/models`
+  Shared persistence models and SQLAlchemy base wiring
+- `backend/migrations`
+  Alembic migrations
+- `backend/app/agents`
+  LangGraph-oriented agent implementations and entrypoints
+- `frontend`
+  Static dashboard, auth, and workflow pages
+- `infra`
+  Container and Nginx support files
+
+### Agent Rollout Model
+
+The migration strategy is intentionally conservative:
+
+- New agent entrypoints are introduced behind existing scheduler and webhook paths
+- Legacy workers remain available as fallbacks when an agent path is unavailable or fails
+- Blocking database and SMTP operations are wrapped for compatibility with the async agent layer
+- Optional LangGraph-specific dependencies are loaded lazily where possible to keep local development and CI stable
+
+## Implemented Agent Components
+
+### Lead Discovery
+
+The active lead discovery flow includes:
+
+- ICP loading
+- multi-source retrieval
+- triangulation
+- deduplication
+- lead scoring
+- HubSpot sync
+
+The lead scorer is a two-pass implementation:
+
+- first-pass batch scoring
+- focused self-critique on top-tier leads
+
+### Outreach
+
+The outreach work now includes:
+
+- an outreach agent state definition
+- context building for personalization
+- LLM-based drafting
+- critique and rewrite flow
+- approval queue persistence
+- approval and rejection API endpoints
+
+The approval-gated flow is present in code, while broader production integration across all current trigger surfaces is still in progress.
+
+## Requirements
+
+### Core Runtime
+
+- Python 3.12 for local development in this repository
+- PostgreSQL
+- Redis
+
+### Optional or Later-Phase Services
+
+- Groq
+- OpenAI
+- HubSpot
+- Chatwoot
+- Mailtrap SMTP
+- Tavily
+- Qdrant
+
+## Configuration
+
+Copy `.env.example` to `.env` and provide the required values.
 
 ```powershell
-python -m venv backend\.venv
-backend\.venv\Scripts\Activate.ps1
+Copy-Item .env.example .env
 ```
 
-### Step 2: Install dependencies
+The most important variables are:
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- `OPENAI_API_KEY`
+- `HUBSPOT_ACCESS_TOKEN`
+- `CHATWOOT_API_KEY`
+- `MAILTRAP_HOST`
+- `MAILTRAP_PORT`
+- `MAILTRAP_USERNAME`
+- `MAILTRAP_PASSWORD`
+
+Agent-related settings already supported by the application include:
+
+- `GROQ_API_KEY`
+- `GROQ_MODEL_FAST`
+- `GROQ_MODEL_LARGE`
+- `LLM_CACHE_TTL_SECONDS`
+- `LLM_MAX_TOKENS_PER_NODE`
+- `AGENT_MAX_RETRIES`
+- `AGENT_RETRY_BASE_DELAY`
+- `AGENT_CIRCUIT_BREAKER_THRESHOLD`
+- `AGENT_FALLBACK_ENABLED`
+
+## Local Development
+
+### Create and Activate a Virtual Environment
 
 ```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### Install Dependencies
+
+```powershell
+python -m pip install --upgrade pip
 pip install -r backend/requirements.txt
 ```
 
-### Step 3: Configure environment
-
-Copy `.env.example` to `.env` and fill in the required secrets:
+### Run the API
 
 ```powershell
-cp .env.example .env
+.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
 ```
 
-Required keys:
-- **Core**: `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`
-- **Existing integrations**: `OPENAI_API_KEY`, `HUBSPOT_ACCESS_TOKEN`, `CHATWOOT_API_KEY`
-- **Phase 1-4 (agent runtime)**: `GROQ_API_KEY` (optional; uses OpenAI fallback if not set)
-- **Phase 2+**: `TAVILY_API_KEY` (intent signals), `QDRANT_HOST`/`PORT`/`QDRANT_API_KEY` (vector DB), `SENTRY_DSN` (error tracking)
-
-### Local backend
+### Run Background Workers
 
 ```powershell
-backend\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+.venv\Scripts\python.exe -m celery -A backend.workers.celery_app worker --loglevel=info
 ```
-
-In separate terminals:
 
 ```powershell
-# Celery worker
-backend\.venv\Scripts\python.exe -m celery -A backend.app.workers.celery_app worker --loglevel=info
-
-# Celery beat scheduler
-backend\.venv\Scripts\python.exe -m celery -A backend.app.workers.celery_app beat --loglevel=info
+.venv\Scripts\python.exe -m celery -A backend.workers.celery_app beat --loglevel=info
 ```
 
-### Full stack (Docker)
+## Containerized Development
+
+Bring up the stack with:
 
 ```powershell
 docker compose up --build
 ```
 
-Services:
-- FastAPI: http://localhost:8000
-- Flower (Celery monitor): http://localhost:5555
-- Postgres: localhost:5432
-- Redis: localhost:6379
-- n8n: http://localhost:5678
-- Qdrant (planned, not yet in compose): localhost:6333
+The current compose setup still includes `n8n`. Qdrant has not yet been added to the active compose file in this repository state.
 
 ## Testing
 
-Run the test suite locally:
+Run the backend suite with:
 
 ```powershell
-python -m pytest -q
+.venv\Scripts\python.exe -m pytest backend/tests -q
 ```
 
-The current backend suite should pass locally. At the time of writing, the repo has **31 passing backend tests** covering smoke checks, workers, services, retry behaviour, and agent scoring/wiring.
+The current suite covers:
 
-## Agent Entrypoint Fallback Mechanism
+- API smoke tests
+- service behavior
+- worker behavior
+- retry and circuit breaker behavior
+- lead scorer behavior
+- lead discovery phase wiring
+- approvals API behavior
+- outreach agent node behavior
 
-Phase 1 introduces a **reversible fallback pattern**:
+## CI
 
-1. Scheduler and webhook handlers **try agent entrypoints first** (e.g., `try_run_lead_sourcing`).
-2. If an agent function is not found, raises an exception, or returns `False`, the system **falls back to existing Celery tasks**.
-3. This allows iterative agent implementation without disrupting the active platform.
+The repository includes a GitHub Actions workflow at `.github/workflows/ci.yml` that installs backend dependencies and runs the backend test suite against PostgreSQL and Redis services.
 
-Example (scheduler.py):
-```python
-handled = try_run_lead_sourcing(query=query, user_id=user_id)
-if handled:
-    return {"status": "agent_handled"}
-return source_leads_task.delay(query=query, user_id=user_id)  # fallback
-```
+The default dependency set does not currently force-install `langgraph-checkpoint-redis`. That package is optional in this repository state because:
 
-## Phase Status
+- it conflicts with the current pinned `langgraph` version in default installation paths
+- the application already falls back gracefully when the Redis saver package is unavailable
 
-✅ **Implemented through Phase 4 foundation**:
-- Scaffolded `backend/app/agents/` with shared base types and agent entrypoints
-- Extended `backend/app/config.py` with Groq, Tavily, Qdrant, Sentry, and agent tuning settings
-- Added the async LLM router, observability layer, and retry/circuit-breaker utilities
-- Implemented the lead discovery agent with ICP loading, multi-source retrieval, triangulation, deduplication, scoring, and HubSpot sync
-- Implemented the Phase 4 PRIME lead scorer and wired it into the active lead discovery path
-- Wired scheduler and webhook routes to agent entrypoints with safe fallbacks
-- Current backend tests pass locally (31 passed)
+## Operational Notes
 
-⏳ **Next**:
-- Phase 5: Outreach agent (email generation, human approval gate)
-- Phase 6: Qdrant RAG infrastructure
-- Phase 7: Support and Reporting agents with ICP learning loop
-- Phase 8–11: Testing, CI/CD, Docker, and handoff
+- Redis is still required for Celery and the current agent fallback checkpoint strategy
+- The application exposes `/health` and `/ready`
+- The readiness endpoint checks database connectivity and agent checkpointer availability
+- Some later-phase LangGraph runtime behavior depends on version compatibility in the LangGraph stack and will continue to be tightened as the agent rollout progresses
 
-## Production Readiness
+## Repository Roadmap
 
-- **Redis is still required:** the app depends on Redis for Celery and agent fallback checkpoint storage; configure `REDIS_URL` in your environment (see `.env.example`). `docker compose` includes Redis and healthchecks.
-- **Redis LangGraph saver is optional in this checkpoint:** the repo now loads the LangGraph Redis saver lazily. If `langgraph-checkpoint-redis` is not installed, the app can still install, test, and run with fallback behaviour. Durable LangGraph checkpointing can be enabled later by installing that optional package once version compatibility is settled.
-- **Readiness probe:** the backend exposes `/ready` which verifies DB connectivity and the LangGraph checkpointer. Use this for orchestration readiness checks.
-- **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) runs the test suite with Postgres and Redis services. The `openai` dependency pin was relaxed to `openai>=1.54.0,<2.0.0` to satisfy transitive requirements from `langchain-openai`, and the incompatible Redis checkpoint package pin was removed from the default install set.
+The next major development areas are:
 
-These changes keep the current agent-based rollout installable and testable while preserving the option to add durable Redis-backed LangGraph checkpoints later.
+1. Complete the approval-gated outreach integration across trigger paths
+2. Add vector infrastructure and retrieval components
+3. Implement support and reporting agents
+4. Finalize Docker and CI/CD handoff state
+5. Remove n8n from active orchestration once the LangGraph replacements are fully in service
