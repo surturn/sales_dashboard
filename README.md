@@ -2,7 +2,7 @@
 
 Bizard Leads is an outreach automation platform built around FastAPI, Celery, PostgreSQL, Redis, and a static frontend. The repository is in the middle of a staged migration from n8n-based workflow orchestration to LangGraph-based agents.
 
-The current codebase includes the foundational agent infrastructure, a production-style lead discovery pipeline with scoring, and the first approval-gated outreach agent components. Legacy workers remain in place as operational fallbacks while the agent rollout continues.
+The current codebase includes the foundational agent infrastructure, a production-style lead discovery pipeline with scoring, an approval-gated outreach path, and the first Qdrant-backed semantic memory components. Legacy workers remain in place as operational fallbacks while the agent rollout continues.
 
 ## Overview
 
@@ -24,16 +24,16 @@ The repository currently reflects the following implementation state:
 - Phase 3: lead discovery agent structure and multi-source retrieval flow
 - Phase 4: lead scoring agent, now wired into the active lead discovery path
 - Phase 5: outreach agent foundation with approval queue persistence and approval API endpoints
+- Phase 6: Qdrant collections, embedding services, and support-agent retrieval with Postgres fallback
 
 The following work is not complete yet:
 
 - Full outreach production integration across all trigger paths
-- Qdrant-backed retrieval and embeddings infrastructure
-- Support and reporting agents
+- broader support-agent production hardening and reporting agents
 - Final Docker handoff state without n8n
 - End-to-end CI/CD and deployment hardening beyond the current test workflow
 
-At the time of writing, the backend test suite passes locally with `36` passing tests.
+At the time of writing, the backend test suite passes locally with `41` passing tests.
 
 ## Architecture
 
@@ -98,6 +98,16 @@ The outreach work now includes:
 
 The approval-gated flow is present in code, while broader production integration across all current trigger surfaces is still in progress.
 
+### Semantic Memory and Support
+
+Phase 6 adds the first semantic memory layer:
+
+- Qdrant collection management for leads, support knowledge chunks, and ICP profiles
+- a local sentence-transformers embedding service
+- a support agent that retrieves relevant KB chunks before drafting a reply
+- Postgres fallback to full support KB text when Qdrant retrieval is unavailable
+- Chatwoot webhook handling routed through the support agent with legacy worker fallback
+
 ## Requirements
 
 ### Core Runtime
@@ -148,6 +158,12 @@ Agent-related settings already supported by the application include:
 - `AGENT_RETRY_BASE_DELAY`
 - `AGENT_CIRCUIT_BREAKER_THRESHOLD`
 - `AGENT_FALLBACK_ENABLED`
+- `QDRANT_HOST`
+- `QDRANT_PORT`
+- `QDRANT_API_KEY`
+- `QDRANT_COLLECTION_LEADS`
+- `QDRANT_COLLECTION_SUPPORT_KB`
+- `QDRANT_COLLECTION_ICP`
 
 ## Local Development
 
@@ -189,7 +205,7 @@ Bring up the stack with:
 docker compose up --build
 ```
 
-The current compose setup still includes `n8n`. Qdrant has not yet been added to the active compose file in this repository state.
+The current compose setup includes `Qdrant` alongside the existing services. `n8n` is still present because the repository is still in the middle of the staged LangGraph migration.
 
 ## Testing
 
@@ -209,6 +225,8 @@ The current suite covers:
 - lead discovery phase wiring
 - approvals API behavior
 - outreach agent node behavior
+- support agent behavior
+- Qdrant client behavior
 
 ## CI
 
@@ -222,8 +240,9 @@ The default dependency set does not currently force-install `langgraph-checkpoin
 ## Operational Notes
 
 - Redis is still required for Celery and the current agent fallback checkpoint strategy
+- Qdrant is initialized at application startup when available and checked by `/ready`
 - The application exposes `/health` and `/ready`
-- The readiness endpoint checks database connectivity and agent checkpointer availability
+- The readiness endpoint checks database connectivity, agent checkpointer availability, and Qdrant connectivity
 - Some later-phase LangGraph runtime behavior depends on version compatibility in the LangGraph stack and will continue to be tightened as the agent rollout progresses
 
 ## Repository Roadmap
@@ -231,7 +250,7 @@ The default dependency set does not currently force-install `langgraph-checkpoin
 The next major development areas are:
 
 1. Complete the approval-gated outreach integration across trigger paths
-2. Add vector infrastructure and retrieval components
-3. Implement support and reporting agents
+2. Harden the new support and outreach agent paths across remaining trigger surfaces
+3. Implement the reporting agent and later ICP learning loop
 4. Finalize Docker and CI/CD handoff state
 5. Remove n8n from active orchestration once the LangGraph replacements are fully in service
