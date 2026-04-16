@@ -16,7 +16,7 @@ settings = get_settings()
 init_logging()
 init_sentry()
 
-from backend.app.api import auth, dashboard, hubspot, leads, outreach, reports, social, webhooks, workflows
+from backend.app.api import approvals, auth, dashboard, hubspot, leads, outreach, reports, social, webhooks, workflows
 
 
 @asynccontextmanager
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(approvals, prefix=settings.API_PREFIX)
     app.include_router(auth, prefix=settings.API_PREFIX)
     app.include_router(dashboard, prefix=settings.API_PREFIX)
     app.include_router(hubspot, prefix=settings.API_PREFIX)
