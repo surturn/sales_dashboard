@@ -1,10 +1,4 @@
-"""Agent webhook handlers (stubs).
-
-These handlers are minimal and return False so the existing webhook
-dispatch/task flow remains the primary path. Implement full agent
-handlers here in later phases; this module provides the import target
-used by `backend.app.agents.entrypoints`.
-"""
+"""Agent webhook handlers used by scheduler and API routes."""
 
 from __future__ import annotations
 
@@ -12,13 +6,13 @@ from typing import Iterable
 
 
 def handle_hubspot_events(events: Iterable[dict]) -> bool:
-    """Attempt to process HubSpot events with an agent.
-
-    Phase 1: noop stub — return False to indicate fallback should run.
-    """
+    """HubSpot webhook agent flow is not implemented yet."""
     return False
 
 
-def handle_chatwoot_event(payload: dict) -> bool:
-    """Attempt to process Chatwoot event with an agent. Phase 1 stub."""
-    return False
+async def handle_chatwoot_event(payload: dict) -> bool:
+    """Process Chatwoot support webhooks via the Phase 6 support agent."""
+    from backend.app.agents.support import run_support
+
+    result = await run_support(payload)
+    return bool(result.get("success"))
