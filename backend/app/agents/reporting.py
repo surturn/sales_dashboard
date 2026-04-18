@@ -24,6 +24,11 @@ from backend.app.database import session_scope
 from backend.services.llm_router import call_llm
 from backend.app.services.qdrant_client import get_qdrant
 from backend.services.email_sender import EmailSender
+try:
+    from backend.app.services.tavily_client import get_user_intent_signals, get_intent_signals_for_lead
+except Exception:
+    get_user_intent_signals = None
+    get_intent_signals_for_lead = None
 
 log = get_logger("reporting_agent")
 settings = get_settings()
@@ -46,6 +51,7 @@ async def metrics_collector(state: ReportingState) -> ReportingState:
     try:
         # Use existing reporting builder which expects a SQLAlchemy Session
         from backend.workers.reporting import build_report_metrics
+        # Optional: attach Tavily user-level intent signals to metrics when available
 
         def _collect():
             with session_scope() as db:
@@ -57,6 +63,13 @@ async def metrics_collector(state: ReportingState) -> ReportingState:
                 return build_report_metrics(db, user_id=user_id_int)
 
         metrics = await asyncio.to_thread(_collect)
+        # If we have a Tavily helper, fetch aggregated intent for the user
+        if get_user_intent_signals is not None:
+            try:
+                ui = await get_user_intent_signals(str(state.get("user_id") or ""))
+                metrics["intent_signals"] = ui
+            except Exception:
+                metrics["intent_signals"] = {}
     except Exception as exc:
         log.error("metrics_collector_failed", error=str(exc))
         errors.append(f"metrics_collector_failed: {str(exc)}")
@@ -142,18 +155,21 @@ async def icp_updater(state: ReportingState) -> ReportingState:
         points = []
         for lead in converted:
             embedding = await embed_lead(lead)
-            points.append(
-                PointStruct(
-                    id=str(lead.get("id")),
-                    vector=embedding,
-                    payload={
-                        "user_id": str(user_id),
-                        "converted": True,
-                        "industry": lead.get("industry"),
-                        "title": lead.get("title"),
-                    },
-                )
-            )
+            payload = {
+                "user_id": str(user_id),
+                "converted": True,
+                "industry": lead.get("industry"),
+                "title": lead.get("title"),
+            }
+            # Attach Tavily signals per-lead when available (email or company)
+            if get_intent_signals_for_lead is not None:
+                try:
+                    ident = lead.get("email") or lead.get("company") or ""
+                    payload["intent_signals"] = await get_intent_signals_for_lead(str(ident))
+                except Exception:
+                    payload["intent_signals"] = {}
+
+            points.append(PointStruct(id=str(lead.get("id")), vector=embedding, payload=payload))
 
         await client.upsert(collection_name=settings.QDRANT_COLLECTION_ICP, points=points)
         await client.close()

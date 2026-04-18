@@ -30,11 +30,17 @@ async def test_metrics_collector_calls_build_report_metrics(monkeypatch):
         return {"total_sales": 123, "new_leads": 10}
 
     monkeypatch.setattr("backend.workers.reporting.build_report_metrics", fake_build)
+    async def fake_user_intent(uid):
+        return {"interest": 0.75}
+
+    monkeypatch.setattr("backend.app.agents.reporting.get_user_intent_signals", fake_user_intent)
 
     state = {"user_id": "7", "metrics": {}, "errors": []}
     out = await metrics_collector(state)
     assert isinstance(out.get("metrics"), dict)
     assert out["metrics"].get("total_sales") == 123
+    assert "intent_signals" in out["metrics"]
+    assert out["metrics"]["intent_signals" ]["interest"] == 0.75
 
 
 @pytest.mark.asyncio

@@ -69,8 +69,10 @@ async def test_icp_updater_with_conversions(monkeypatch):
         async def close(self):
             self.closed = True
 
+    client = FakeClient()
+
     async def fake_get_qdrant():
-        return FakeClient()
+        return client
 
     monkeypatch.setattr("backend.app.agents.reporting.session_scope", fake_session_scope)
     # embed_lead is imported inside the node; ensure the embeddings module is available
@@ -78,9 +80,21 @@ async def test_icp_updater_with_conversions(monkeypatch):
     sys.modules["backend.app.services.embeddings"] = SimpleNamespace(embed_lead=fake_embed_lead)
     # reporting module already imported get_qdrant at module-import time, patch that name
     monkeypatch.setattr("backend.app.agents.reporting.get_qdrant", fake_get_qdrant)
+    # patch Tavily per-lead signals
+    async def fake_get_signals(ident):
+        return {"signal": "high"}
+
+    monkeypatch.setattr("backend.app.agents.reporting.get_intent_signals_for_lead", fake_get_signals)
 
     state = {"user_id": "7", "metrics": {}, "metrics_presented": {}, "summary": "", "icp_updated": False, "conversions_this_week": 0, "errors": [], "run_id": "r2"}
 
     out = await icp_updater(state)
     assert out.get("icp_updated") is True
     assert out.get("conversions_this_week") == 1
+    # ensure the Qdrant payload got intent signals
+    assert len(client.upsert_calls) == 1
+    _, points = client.upsert_calls[0]
+    assert len(points) == 1
+    payload = points[0].payload
+    assert "intent_signals" in payload
+    assert payload["intent_signals"]["signal"] == "high"
