@@ -48,6 +48,26 @@ async def lifespan(_app: FastAPI):
         # installed; above we will raise in production, otherwise continue.
         if settings.APP_ENV == "production":
             raise
+    try:
+        from backend.app.core.observability import get_logger
+        from backend.app.services.qdrant_client import ensure_collections, get_qdrant
+
+        logger = get_logger("startup")
+        client = await get_qdrant()
+        try:
+            await ensure_collections(client)
+            logger.info("qdrant_collections_ready")
+        finally:
+            await client.close()
+    except Exception as exc:
+        try:
+            from backend.app.core.observability import get_logger
+
+            get_logger("startup").exception("qdrant_unavailable", error=str(exc))
+        except Exception:
+            pass
+        if settings.APP_ENV == "production":
+            raise
     yield
 
 
@@ -81,7 +101,7 @@ def create_app() -> FastAPI:
 
     @app.get("/ready")
     async def readiness_check() -> dict:
-        """Readiness probe for orchestration (DB + agent checkpointer)."""
+        """Readiness probe for orchestration dependencies."""
         details: dict = {}
         healthy = True
 
@@ -110,6 +130,19 @@ def create_app() -> FastAPI:
                 pass
         except Exception as exc:
             details["checkpointer"] = f"error: {str(exc)}"
+            healthy = False
+
+        try:
+            from backend.app.services.qdrant_client import get_qdrant
+
+            client = await get_qdrant()
+            try:
+                await client.get_collections()
+                details["qdrant"] = "ok"
+            finally:
+                await client.close()
+        except Exception as exc:
+            details["qdrant"] = f"error: {str(exc)}"
             healthy = False
 
         status = "ok" if healthy else "unhealthy"
