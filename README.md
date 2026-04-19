@@ -41,6 +41,15 @@ What changed
   into Qdrant (`settings.QDRANT_COLLECTION_ICP`) to improve per-user scoring.
   See: [backend/migrations/versions/005_add_conversions_table.py](backend/migrations/versions/005_add_conversions_table.py)
 
+- Scheduler changes: the project now uses an agent-first scheduler shim
+  [backend/workers/scheduler.py](backend/workers/scheduler.py) that exposes
+  Celery wrapper tasks which attempt to run LangGraph agents first and fall
+  back to the legacy Celery workers when agents are unavailable or fail.
+  Celery beat was updated to call these wrappers (weekly reports via
+  `backend.workers.scheduler.trigger_weekly_report`) and a new daily
+  lead-sourcing job (`backend.workers.scheduler.trigger_lead_sourcing` at
+  03:00 UTC) so agent-driven scheduling is the primary execution path.
+
 Tavily (intent signals)
 - Optional integration with Tavily to surface intent signals per-user and per-lead.
   - Client: [backend/app/services/tavily_client.py](backend/app/services/tavily_client.py)
@@ -81,6 +90,8 @@ Handoff / PR checklist
 - Files changed: `backend/app/agents/reporting.py`, `backend/app/services/tavily_client.py`,
   `backend/migrations/versions/005_add_conversions_table.py`, and tests under
   `backend/tests/test_agents/`.
+  Also updated scheduler and Celery config: `backend/workers/scheduler.py`,
+  `backend/workers/celery_app.py`.
 - Run locally: `python -m pytest backend/tests -q` (47 tests passing locally at time of change)
 - Migration: `alembic upgrade head`
 - Add `TAVILY_API_KEY` (optional) and ensure Qdrant is reachable in production.

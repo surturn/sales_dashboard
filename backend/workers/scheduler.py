@@ -5,19 +5,24 @@ from backend.workers.hubspot_sync_deals import sync_hubspot_companies_task, sync
 from backend.workers.lead_sourcing import source_leads_task
 from backend.workers.reporting import generate_weekly_report_task
 
-# Try agent entrypoints first (minimal reversible stubs). If agents return
-# False or raise, we fall back to the existing Celery tasks.
+# Try agent entrypoints first (minimal reversible shims). If agents return
+# False or raise, fall back to the existing Celery tasks.
 from backend.app.agents.entrypoints import try_run_lead_sourcing, try_run_weekly_report
+from backend.workers.celery_app import celery_app
 
 
-def trigger_lead_sourcing(query: str, user_id: int | None = None):
+@celery_app.task(name="backend.workers.scheduler.trigger_lead_sourcing")
+def trigger_lead_sourcing(query: str | None = None, user_id: int | None = None):
+    """Celery task wrapper: try agent-first, else schedule legacy Celery job."""
     handled = try_run_lead_sourcing(query=query, user_id=user_id)
     if handled:
         return {"status": "agent_handled"}
     return source_leads_task.delay(query=query, user_id=user_id)
 
 
+@celery_app.task(name="backend.workers.scheduler.trigger_weekly_report")
 def trigger_weekly_report():
+    """Celery task wrapper: try reporting agent, else schedule legacy reporting job."""
     handled = try_run_weekly_report()
     if handled:
         return {"status": "agent_handled"}
@@ -41,8 +46,8 @@ def trigger_hubspot_company_sync(user_id: int | None = None):
 
 
 WORKFLOW_DISPATCH = {
-    "lead-sourcing": source_leads_task,
-    "weekly-report": generate_weekly_report_task,
+    "lead-sourcing": trigger_lead_sourcing,
+    "weekly-report": trigger_weekly_report,
     "social-trends": discover_social_trends_task,
     "social-analytics": collect_social_analytics_task,
     "hubspot-contact-sync": sync_hubspot_contacts_task,
