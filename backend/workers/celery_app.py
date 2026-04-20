@@ -17,6 +17,7 @@ celery_app = Celery(
         "backend.workers.outreach",
         "backend.workers.support",
         "backend.workers.reporting",
+        "backend.workers.scheduler",
         "backend.workers.webhook_dispatcher",
         "backend.workers.hubspot_sync_contacts",
         "backend.workers.hubspot_sync_deals",
@@ -44,8 +45,12 @@ if find_spec("redbeat") is not None:
 
 celery_app.conf.beat_schedule = {
     "weekly-report": {
-        "task": "backend.workers.reporting.generate_weekly_report",
+        "task": "backend.workers.scheduler.trigger_weekly_report",
         "schedule": crontab(day_of_week="mon", hour=9, minute=0),
+    },
+    "daily-lead-sourcing": {
+        "task": "backend.workers.scheduler.trigger_lead_sourcing",
+        "schedule": crontab(hour=3, minute=0),
     },
     "social-trend-discovery": {
         "task": "backend.domains.social.workers.trends.discover_social_trends",

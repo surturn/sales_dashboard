@@ -1,0 +1,172 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  # Backend unit and integration tests with Postgres and Redis
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bizard_leads
+          POSTGRES_USER: bizard
+          POSTGRES_PASSWORD: change-me
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: Wait for services
+        run: sleep 10
+
+      - name: Run pytest
+        env:
+          DATABASE_URL: postgresql+psycopg://bizard:change-me@127.0.0.1:5432/bizard_leads
+          REDIS_URL: redis://127.0.0.1:6379/0
+          TASKS_ALWAYS_EAGER: "true"
+          # LLM settings (use dummy keys for CI)
+          GROQ_API_KEY: dummy-key-for-ci
+          OPENAI_API_KEY: dummy-key-for-ci
+          TAVILY_API_KEY: dummy-key-for-ci
+          HUBSPOT_ACCESS_TOKEN: dummy-key-for-ci
+          CHATWOOT_API_KEY: dummy-key-for-ci
+          # Agent settings
+          AGENT_FALLBACK_ENABLED: "true"
+          AGENT_MAX_RETRIES: "1"
+          APP_ENV: test
+        run: |
+          python -m pytest backend/tests \
+            -v \
+            --tb=short \
+            --junit-xml=test-results.xml \
+            --cov=backend \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: coverage.xml
+
+      - name: Publish test results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: test-results.xml
+          check_name: Backend Tests
+
+  # Docker image build and validation
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker images
+        env:
+          # PostgreSQL
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: bizard_leads_ci
+          # Qdrant
+          QDRANT_API_KEY: ci-key
+          # LLM keys (dummy for CI)
+          GROQ_API_KEY: dummy-key-for-ci
+          OPENAI_API_KEY: dummy-key-for-ci
+          HUBSPOT_ACCESS_TOKEN: dummy-key-for-ci
+          CHATWOOT_API_KEY: dummy-key-for-ci
+          TAVILY_API_KEY: dummy-key-for-ci
+        run: |
+          docker compose -f docker-compose.yml build --no-cache
+
+      - name: Create .env for validation
+        run: |
+          cp .env.example .env
+
+      - name: Validate docker-compose
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: bizard_leads_ci
+          QDRANT_API_KEY: ci-key
+          GROQ_API_KEY: dummy-key-for-ci
+          OPENAI_API_KEY: dummy-key-for-ci
+          HUBSPOT_ACCESS_TOKEN: dummy-key-for-ci
+          CHATWOOT_API_KEY: dummy-key-for-ci
+          TAVILY_API_KEY: dummy-key-for-ci
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+
+  # Code quality and linting (optional but recommended)
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flake8 black isort
+
+      - name: Check code formatting (black)
+        run: black --check backend --exclude migrations || true
+
+      - name: Check import sorting (isort)
+        run: isort --check-only backend || true
+
+      - name: Lint with flake8
+        run: flake8 backend --max-line-length=100 --extend-ignore=E203,W503 || true

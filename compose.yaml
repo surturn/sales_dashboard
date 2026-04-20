@@ -1,28 +1,48 @@
+# Docker Compose development override
+# This extends docker-compose.yml with development-specific settings.
+# Run with: docker compose up --build
+
 services:
   api:
     extends:
       file: docker-compose.yml
       service: api
+    environment:
+      - APP_ENV=development
+      - DEBUG=true
+    volumes:
+      - .:/app
+      - /app/node_modules  # Prevent node_modules from being overwritten
+
   celery-worker:
     extends:
       file: docker-compose.yml
       service: celery-worker
+    environment:
+      - APP_ENV=development
+
   celery-beat:
     extends:
       file: docker-compose.yml
       service: celery-beat
+    environment:
+      - APP_ENV=development
+
   postgres:
     extends:
       file: docker-compose.yml
       service: postgres
+
   redis:
     extends:
       file: docker-compose.yml
       service: redis
-  n8n:
+
+  qdrant:
     extends:
       file: docker-compose.yml
-      service: n8n
+      service: qdrant
+
   nginx:
     extends:
       file: docker-compose.yml
@@ -30,4 +50,5 @@ services:
 
 volumes:
   postgres_data:
-  n8n_data:
+  redis_data:
+  qdrant_data:

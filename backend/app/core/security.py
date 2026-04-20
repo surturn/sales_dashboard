@@ -1,6 +1,6 @@
 import hmac
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from jose import JWTError, jwt
@@ -35,7 +35,7 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta, extra:
     payload: dict[str, Any] = {
         "sub": subject,
         "type": token_type,
-        "exp": datetime.utcnow() + expires_delta,
+        "exp": datetime.now(timezone.utc) + expires_delta,
     }
     if extra:
         payload.update(extra)

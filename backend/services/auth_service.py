@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,7 +52,7 @@ def _persist_refresh_token(
         refresh_token=refresh_token,
         user_agent=user_agent,
         ip_address=ip_address,
-        expires_at=datetime.utcnow() + timedelta(days=30),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db.add(session)
     db.commit()
@@ -77,7 +77,7 @@ def create_tokens_for_user(
 def revoke_refresh_token(db: Session, refresh_token: str) -> None:
     session = db.scalar(select(SessionModel).where(SessionModel.refresh_token == refresh_token))
     if session is not None:
-        session.revoked_at = datetime.utcnow()
+        session.revoked_at = datetime.now(timezone.utc)
         db.add(session)
         db.commit()
 
@@ -87,7 +87,7 @@ def validate_refresh_token(db: Session, refresh_token: str) -> User | None:
     payload = decode_token_safely(refresh_token)
     if session is None or session.revoked_at is not None or payload is None or payload.get("type") != "refresh":
         return None
-    if session.expires_at < datetime.utcnow():
+    if session.expires_at < datetime.now(timezone.utc):
         revoke_refresh_token(db, refresh_token)
         return None
     email = payload.get("sub")

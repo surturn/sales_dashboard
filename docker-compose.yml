@@ -1,4 +1,12 @@
 services:
+  # FastAPI application with integrated LangGraph agents
+  # This is the primary execution path for:
+  # - Lead Discovery (Phase 3): multi-source retrieval, scoring, HubSpot sync
+  # - Lead Scorer (Phase 4): two-pass PRIME scoring with critique (OpenAI-powered)
+  # - Outreach Agent (Phase 5): LLM drafting, critique (OpenAI), approval queues
+  # - Support Agent (Phase 6): Qdrant KB retrieval, semantic memory
+  # - Reporting Agent (Phase 7): metrics, narrative, ICP learning loop
+  # All workflows are LangGraph agents; n8n has been removed.
   api:
     build:
       context: .
@@ -6,40 +14,152 @@ services:
     command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     env_file:
       - .env
+    environment:
+      # Database & cache
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      
+      # LangGraph & agents
+      - AGENT_FALLBACK_ENABLED=true
+      - AGENT_MAX_RETRIES=3
+      - AGENT_RETRY_BASE_DELAY=1.0
+      - AGENT_CIRCUIT_BREAKER_THRESHOLD=5
+      
+      # LLM configuration (Groq preferred for cost/speed)
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL_FAST=${GROQ_MODEL_FAST:-llama-3.1-8b-instant}
+      - GROQ_MODEL_LARGE=${GROQ_MODEL_LARGE:-llama-3.3-70b-versatile}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - LLM_CACHE_TTL_SECONDS=${LLM_CACHE_TTL_SECONDS:-86400}
+      - LLM_MAX_TOKENS_PER_NODE=${LLM_MAX_TOKENS_PER_NODE:-2000}
+      
+      # Vector database (Qdrant) for semantic memory
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_COLLECTION_LEADS=leads
+      - QDRANT_COLLECTION_SUPPORT_KB=support_kb
+      - QDRANT_COLLECTION_ICP=icp_profiles
+      
+      # External integrations
+      - HUBSPOT_ACCESS_TOKEN=${HUBSPOT_ACCESS_TOKEN}
+      - HUBSPOT_CLIENT_SECRET=${HUBSPOT_CLIENT_SECRET}
+      - CHATWOOT_API_KEY=${CHATWOOT_API_KEY}
+      - CHATWOOT_BASE_URL=${CHATWOOT_BASE_URL:-https://app.chatwoot.com/api/v1}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      
+      # Celery task execution
+      - TASKS_ALWAYS_EAGER=false
+      
+      # Application settings
+      - APP_ENV=production
     volumes:
       - .:/app
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
+  # Celery worker: executes background tasks and fallback Celery workers when agents are unavailable.
+  # In production, scale this to multiple workers as needed.
   celery-worker:
     build:
       context: .
       dockerfile: ./Dockerfile
-    command: celery -A backend.workers.celery_app.celery_app worker --loglevel=info
+    command: celery -A backend.workers.celery_app.celery_app worker --loglevel=info --concurrency=4
     env_file:
       - .env
+    environment:
+      # Database & cache
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      
+      # LLM configuration
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL_FAST=${GROQ_MODEL_FAST:-llama-3.1-8b-instant}
+      - GROQ_MODEL_LARGE=${GROQ_MODEL_LARGE:-llama-3.3-70b-versatile}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      
+      # Vector database
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      
+      # External integrations
+      - HUBSPOT_ACCESS_TOKEN=${HUBSPOT_ACCESS_TOKEN}
+      - HUBSPOT_CLIENT_SECRET=${HUBSPOT_CLIENT_SECRET}
+      - CHATWOOT_API_KEY=${CHATWOOT_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      
+      - APP_ENV=production
     volumes:
       - .:/app
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
 
+  # Celery Beat scheduler: triggers agent-first entrypoints for:
+  # - Daily lead discovery at 03:00 UTC (trigger_lead_sourcing)
+  # - Weekly reporting at 08:00 UTC Mondays (trigger_weekly_report)
+  # Falls back to legacy Celery workers when agents are unavailable.
   celery-beat:
     build:
       context: .
       dockerfile: ./Dockerfile
-    command: celery -A backend.workers.celery_app.celery_app beat --loglevel=info
+    command: celery -A backend.workers.celery_app.celery_app beat --loglevel=info --scheduler redbeat.RedBeatScheduler
     env_file:
       - .env
+    environment:
+      # Database & cache
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      
+      # LLM configuration
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL_FAST=${GROQ_MODEL_FAST:-llama-3.1-8b-instant}
+      - GROQ_MODEL_LARGE=${GROQ_MODEL_LARGE:-llama-3.3-70b-versatile}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      
+      # Vector database
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      
+      # External integrations
+      - HUBSPOT_ACCESS_TOKEN=${HUBSPOT_ACCESS_TOKEN}
+      - HUBSPOT_CLIENT_SECRET=${HUBSPOT_CLIENT_SECRET}
+      - CHATWOOT_API_KEY=${CHATWOOT_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      
+      - APP_ENV=production
     volumes:
       - .:/app
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
+  # PostgreSQL: primary persistent data store
+  # Used for: user accounts, leads, conversions, outreach logs, sessions, sync state
   postgres:
     image: postgres:16-alpine
     environment:
@@ -50,34 +170,73 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
+  # Redis: Celery broker/backend and fallback agent checkpoint storage
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-
-  n8n:
-    image: n8nio/n8n:latest
-    ports:
-      - "5678:5678"
-    environment:
-      N8N_HOST: localhost
-      N8N_PORT: 5678
-      WEBHOOK_URL: http://localhost:5678/
+    command: redis-server --appendonly yes
     volumes:
-      - n8n_data:/home/node/.n8n
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
+  # Qdrant: vector database for semantic memory
+  # Collections:
+  # - leads: embeddings of discovered leads for semantic search
+  # - support_kb: customer support knowledge base chunks
+  # - icp_profiles: ICP learning loop (Phase 7) conversions and intent signals
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Nginx: reverse proxy and static file server
+  # Routes:
+  # - / → FastAPI backend (agent APIs, dashboards)
+  # - /webhook → FastAPI webhook handlers (HubSpot, Chatwoot)
+  # - /static/* → frontend assets
   nginx:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./infra/nginx:/etc/nginx/conf.d:ro
       - ./frontend:/usr/share/nginx/html:ro
     depends_on:
       - api
-      - n8n
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:
-  n8n_data:
+  redis_data:
+
+  qdrant_data:

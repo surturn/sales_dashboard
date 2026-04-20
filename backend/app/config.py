@@ -56,6 +56,12 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    # LangGraph / LLM (Groq primary, OpenAI fallback)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL_FAST: str = "llama-3.1-8b-instant"
+    GROQ_MODEL_LARGE: str = "llama-3.3-70b-versatile"
+    LLM_CACHE_TTL_SECONDS: int = 86400
+    LLM_MAX_TOKENS_PER_NODE: int = 2000
     HUBSPOT_ACCESS_TOKEN: str = Field(
         default="",
         validation_alias=AliasChoices("HUBSPOT_ACCESS_TOKEN", "HUBSPOT_API_KEY", "HUBSPOT_PRIVATE_APP_TOKEN"),
@@ -69,7 +75,7 @@ class Settings(BaseSettings):
 
     HUBSPOT_BASE_URL: str = "https://api.hubapi.com"
     CHATWOOT_BASE_URL: str = "https://app.chatwoot.com/api/v1"
-    N8N_WEBHOOK_BASE: str = "http://localhost:5678/webhook"
+    # N8N_WEBHOOK_BASE removed — n8n deprecated in favor of LangGraph agents
     SOCIAL_TRENDS_WEBHOOK_PATH: str = "social/trends"
     SOCIAL_PUBLISH_WEBHOOK_PATH: str = "social/publish"
     SOCIAL_ANALYTICS_WEBHOOK_PATH: str = "social/analytics"
@@ -79,6 +85,29 @@ class Settings(BaseSettings):
     LINKEDIN_SCRAPE_DELAY_SECONDS: float = 5.0
     SMTP_VERIFY_PER_MINUTE: int = 10
     LEAD_PIPELINE_BATCH_SIZE: int = 20
+
+    # Tavily (intent signals)
+    TAVILY_API_KEY: str = ""
+
+    # Qdrant (vector DB)
+    QDRANT_HOST: str = "localhost"
+    QDRANT_PORT: int = 6333
+    QDRANT_API_KEY: str = ""
+    QDRANT_COLLECTION_LEADS: str = "leads_embeddings"
+    QDRANT_COLLECTION_SUPPORT_KB: str = "support_knowledge_base"
+    QDRANT_COLLECTION_ICP: str = "user_icp_profiles"
+
+    # Sentry
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = "development"
+
+    # Agent tuning
+    AGENT_MAX_RETRIES: int = 3
+    AGENT_RETRY_BASE_DELAY: float = 1.0
+    AGENT_CIRCUIT_BREAKER_THRESHOLD: int = 5
+    AGENT_FALLBACK_ENABLED: bool = True
+    TRIANGULATION_MIN_SOURCES: int = 2
+    LEAD_SCORE_THRESHOLD: int = 40
 
     EMAIL_FROM: str = "noreply@bizardleads.local"
     REPORT_RECIPIENT_EMAIL: str = "founder@bizardleads.local"
