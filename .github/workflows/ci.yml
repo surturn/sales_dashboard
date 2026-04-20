@@ -112,12 +112,35 @@ jobs:
         uses: docker/setup-buildx-action@v2
 
       - name: Build Docker images
+        env:
+          # PostgreSQL
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: bizard_leads_ci
+          # Qdrant
+          QDRANT_API_KEY: ci-key
+          # LLM keys (dummy for CI)
+          GROQ_API_KEY: dummy-key-for-ci
+          OPENAI_API_KEY: dummy-key-for-ci
+          HUBSPOT_ACCESS_TOKEN: dummy-key-for-ci
+          CHATWOOT_API_KEY: dummy-key-for-ci
+          TAVILY_API_KEY: dummy-key-for-ci
         run: |
-          docker compose build --no-cache
+          docker compose -f docker-compose.yml build --no-cache
 
       - name: Validate docker-compose
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: bizard_leads_ci
+          QDRANT_API_KEY: ci-key
+          GROQ_API_KEY: dummy-key-for-ci
+          OPENAI_API_KEY: dummy-key-for-ci
+          HUBSPOT_ACCESS_TOKEN: dummy-key-for-ci
+          CHATWOOT_API_KEY: dummy-key-for-ci
+          TAVILY_API_KEY: dummy-key-for-ci
         run: |
-          docker compose config --quiet
+          docker compose -f docker-compose.yml config --quiet
 
   # Code quality and linting (optional but recommended)
   lint:
