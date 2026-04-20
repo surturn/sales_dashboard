@@ -55,8 +55,7 @@ def _complete_run(
     run.status = status
     run.records_processed = records_processed
     run.records_created = records_created
-    run.completed_at = datetime.utcnow()
-    run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3) if run.started_at else None
+    run.completed_at = datetime.now(UTC)
     run.payload = json.dumps(payload)
     run.error_message = error_message
     db.add(run)

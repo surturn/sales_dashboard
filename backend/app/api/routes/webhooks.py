@@ -9,6 +9,7 @@ from backend.app.core.rate_limit import limiter
 from backend.app.core.security import has_hubspot_object_id, has_valid_shared_secret, is_supported_hubspot_webhook_event
 from backend.workers.support import process_chatwoot_webhook
 from backend.workers.webhook_dispatcher import dispatch_hubspot_webhook_task
+from backend.app.agents.entrypoints import try_handle_hubspot_events, try_handle_chatwoot_event
 
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -80,12 +81,28 @@ async def hubspot_webhook(request: Request) -> dict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
 
     dispatchable_events = _normalize_hubspot_events(payload)
-    dispatch_hubspot_webhook_task.delay(json.dumps(dispatchable_events))
-    return {"status": "accepted", "queued": True, "events": len(dispatchable_events)}
+    # Try agent handler first. If it returns False, fall back to existing task.
+    try:
+        handled = try_handle_hubspot_events(dispatchable_events)
+    except Exception:
+        handled = False
+
+    if not handled:
+        dispatch_hubspot_webhook_task.delay(json.dumps(dispatchable_events))
+        return {"status": "accepted", "queued": True, "events": len(dispatchable_events)}
+    return {"status": "accepted", "queued": False, "events": len(dispatchable_events), "agent_handled": True}
 
 
 @router.post("/chatwoot", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit(settings.RATE_LIMIT_WEBHOOKS)
 async def chatwoot_webhook(request: Request) -> dict:
-    process_chatwoot_webhook(await request.json())
-    return {"status": "accepted"}
+    payload = await request.json()
+    try:
+        handled = try_handle_chatwoot_event(payload)
+    except Exception:
+        handled = False
+
+    if not handled:
+        process_chatwoot_webhook(payload)
+        return {"status": "accepted", "queued": True}
+    return {"status": "accepted", "queued": False, "agent_handled": True}

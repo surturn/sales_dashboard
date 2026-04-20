@@ -1,10 +1,11 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
+from backend.app.core.timeutils import elapsed_seconds
 from backend.app.core.cache import CacheBackend, build_cache_key
 from backend.domains.leads.services.lead_service import create_workflow_run
 from backend.domains.social.models.social_post import SocialPost
@@ -35,7 +36,8 @@ def serialize_workflow_run(run: WorkflowRun) -> dict:
     payload = json.loads(run.payload or "{}") if run.payload else {}
     execution_time = run.execution_time
     if execution_time is None and run.started_at and run.completed_at:
-        execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
+        et = elapsed_seconds(run.started_at, run.completed_at)
+        execution_time = round(et, 3) if et is not None else None
     return {
         "job_id": make_trend_job_id(run.id) if run.workflow_name == TREND_DISCOVERY_WORKFLOW_NAME else f"workflow_{run.id}",
         "workflow_run_id": run.id,
@@ -289,9 +291,16 @@ def discover_trends(
         run.status = "completed"
         run.records_processed = len(raw_trends)
         run.records_created = len(stored_ids)
+<<<<<<< HEAD
         run.completed_at = datetime.utcnow()
         run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
         run.payload = json.dumps({"topic": topic, "platforms": platforms, "draft_ids": stored_ids, "count": len(stored_ids)})
+=======
+        run.completed_at = datetime.now(timezone.utc)
+        et = elapsed_seconds(run.started_at, run.completed_at)
+        run.execution_time = round(et, 3) if et is not None else None
+        run.payload = json.dumps({"topic": topic, "platforms": platforms, "trend_ids": stored_ids, "count": len(stored_ids)})
+>>>>>>> 06ec1c7d04a51b940ca88c72f433f7e6acc0cc1f
         db.add(run)
         db.commit()
         cache.delete(build_cache_key("dashboard", "social", user_id or "global"))
@@ -300,8 +309,9 @@ def discover_trends(
     except Exception as exc:
         run.status = "failed"
         run.error_message = str(exc)
-        run.completed_at = datetime.utcnow()
-        run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
+        run.completed_at = datetime.now(timezone.utc)
+        et = elapsed_seconds(run.started_at, run.completed_at)
+        run.execution_time = round(et, 3) if et is not None else None
         db.add(run)
         db.commit()
         raise
