@@ -1,6 +1,5 @@
 from functools import lru_cache
 from pathlib import Path
-
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,12 +27,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DATABASE_URL", "POSTGRES_URL"),
     )
     REDIS_URL: str = "redis://localhost:6379/0"
-    TASKS_ALWAYS_EAGER: bool = True
+    TASKS_ALWAYS_EAGER: bool = False
     HUBSPOT_CONTACT_SYNC_MINUTES: int = 5
     HUBSPOT_DEAL_SYNC_MINUTES: int = 5
     HUBSPOT_COMPANY_SYNC_MINUTES: int = 15
     CACHE_DEFAULT_TTL_SECONDS: int = 120
     CACHE_TRENDS_TTL_SECONDS: int = 900
+    SOCIAL_DRAFT_SESSION_TTL_SECONDS: int = 1800
     RATE_LIMIT_CAPACITY: int = 60
     RATE_LIMIT_REFILL_RATE: float = 1.0
     RATE_LIMIT_DEFAULT: str = "60/minute"
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
 
     HUBSPOT_BASE_URL: str = "https://api.hubapi.com"
     CHATWOOT_BASE_URL: str = "https://app.chatwoot.com/api/v1"
-    N8N_WEBHOOK_BASE: str = "http://localhost:5678/webhook"
+    N8N_WEBHOOK_BASE: str = "http://n8n:5678/webhook"
     SOCIAL_TRENDS_WEBHOOK_PATH: str = "social/trends"
     SOCIAL_PUBLISH_WEBHOOK_PATH: str = "social/publish"
     SOCIAL_ANALYTICS_WEBHOOK_PATH: str = "social/analytics"

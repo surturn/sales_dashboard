@@ -15,6 +15,7 @@ function setTokens(accessToken, refreshToken) {
 function clearTokens() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
+  sessionStorage.removeItem("bizard_social_trend_selection_ids");
 }
 
 function getRefreshToken() {

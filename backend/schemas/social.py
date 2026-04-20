@@ -10,8 +10,9 @@ class TrendDiscoveryRequest(BaseModel):
 
 
 class SocialPostCreateRequest(BaseModel):
-    trend_id: int
-    platform: str
+    draft_id: str | None = None
+    trend_id: int | None = None
+    platform: str | None = None
 
 
 class SocialPublishRequest(BaseModel):
@@ -21,13 +22,35 @@ class SocialPublishRequest(BaseModel):
 class SocialTrendRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: str
     platform: str
     keyword: str
+    topic: str | None = None
     summary: str | None = None
     score: float
     status: str
-    discovered_at: datetime
+    source: str | None = None
+    title: str | None = None
+    caption: str | None = None
+    content: str | None = None
+    created_at: datetime
+
+
+class SocialDraftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    platform: str
+    keyword: str
+    topic: str | None = None
+    summary: str | None = None
+    score: float
+    status: str
+    source: str | None = None
+    title: str | None = None
+    caption: str | None = None
+    content: str | None = None
+    created_at: datetime
 
 
 class SocialPostRead(BaseModel):

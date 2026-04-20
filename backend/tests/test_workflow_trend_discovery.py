@@ -158,3 +158,24 @@ def test_stop_workflow_revokes_task_and_marks_run_stopped(monkeypatch) -> None:
     db.refresh(run)
     assert run.status == "stopped"
     assert run.completed_at is not None
+
+
+def test_list_workflows_includes_payload_for_recent_runs() -> None:
+    client, db, user = build_test_client()
+    run = WorkflowRun(
+        user_id=user.id,
+        domain="social",
+        workflow_name="social-trend-discovery",
+        trigger_source="user",
+        status="completed",
+        payload='{"topic":"Founder content","platforms":["linkedin"],"limit":4}',
+    )
+    db.add(run)
+    db.commit()
+
+    response = client.get("/api/workflows/")
+
+    assert response.status_code == 200
+    recent_runs = response.json()["recent_runs"]
+    trend_run = next(item for item in recent_runs if item["workflow_name"] == "social-trend-discovery")
+    assert trend_run["payload"]["topic"] == "Founder content"

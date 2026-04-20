@@ -4,10 +4,14 @@ const SOCIAL_PLATFORMS = ["instagram", "tiktok", "facebook", "youtube", "linkedi
 const SOCIAL_TREND_WORKFLOW_NAME = "social-trend-discovery";
 const SOCIAL_TREND_JOB_KEY = "bizard_social_trend_job_id";
 let socialMetrics = {};
-let socialTrends = [];
+let socialDrafts = [];
 let socialPosts = [];
+let trendSearchHistory = [];
 let currentTrendJob = null;
 let trendJobPoller = null;
+let loadMetrics = async () => {};
+let loadDrafts = async () => {};
+let loadPosts = async () => {};
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleString() : "Not Scheduled";
@@ -60,7 +64,7 @@ function renderDiscoveryFeedback(job = currentTrendJob) {
       textSlot.textContent = "Ready To Run Discovery";
     } else if (normalizedStatus === "completed") {
       const created = Number(job.records_created || 0);
-      textSlot.textContent = `${created} Trends Saved`;
+      textSlot.textContent = `${created} Session Drafts Ready`;
     } else if (normalizedStatus === "failed") {
       textSlot.textContent = job.error_message || "Trend Discovery Failed";
     } else if (normalizedStatus === "stopped") {
@@ -87,6 +91,137 @@ function setCurrentTrendJob(job) {
   currentTrendJob = job ? { ...job, status: String(job.status || "idle").toLowerCase() } : null;
   setStoredTrendJobId(currentTrendJob?.job_id || null);
   renderDiscoveryFeedback(currentTrendJob);
+}
+
+function buildTrendHistory(runs = []) {
+  return runs
+    .filter((run) => run.workflow_name === SOCIAL_TREND_WORKFLOW_NAME)
+    .map((run) => ({
+      id: run.id || run.job_id,
+      topic: run.payload?.topic || "Trend Discovery",
+      platforms: Array.isArray(run.payload?.platforms) ? run.payload.platforms : [],
+      status: String(run.status || "idle").toLowerCase(),
+      count: Number(run.records_created || run.records_processed || run.payload?.count || 0),
+      startedAt: run.started_at,
+    }));
+}
+
+function shouldShowTrendHistoryOnly() {
+  return socialDrafts.length === 0;
+}
+
+function renderTrendSearchHistory() {
+  if (!trendSearchHistory.length) {
+    return '<div class="empty">No Trend Search History Yet. Run Discovery To Start Building A Search Trail.</div>';
+  }
+
+  return `
+    <div class="empty">Session Drafts Expire After 30 Minutes. Approve The Ones Worth Keeping And Let The Rest Disappear Automatically.</div>
+    <div class="settings-list">
+      ${trendSearchHistory
+        .map(
+          (entry) => `
+            <div class="settings-item">
+              <div>
+                <strong>${titleCase(entry.topic)}</strong>
+                <div class="label">${entry.platforms.length ? entry.platforms.map((platform) => titleCase(platform)).join(", ") : "All Platforms"} | ${formatDate(entry.startedAt)}</div>
+              </div>
+              <div style="text-align:right;">
+                <strong>${entry.count} Drafts</strong>
+                <div class="label">${titleCase(entry.status)}</div>
+              </div>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderSessionDraftCards() {
+  if (!socialDrafts.length) {
+    return '<div class="empty">No Session Drafts Yet. Run Discovery To Generate AI Draft Options.</div>';
+  }
+
+  return socialDrafts
+    .map(
+      (draft) => `
+        <article class="trend-card">
+          <div class="meta-row">
+            <span class="status-chip">${titleCase(draft.platform)}</span>
+            <span class="status-chip">Priority ${Number(draft.score || 0).toFixed(1)}</span>
+            <span class="status-chip">${titleCase(draft.status)}</span>
+          </div>
+          <h3>${titleCase(draft.title || draft.keyword || "Untitled Draft")}</h3>
+          <p>${draft.summary || "No Summary Returned For This Trend Yet"}</p>
+          <div class="content-block">${draft.content || "No Draft Body Generated Yet"}</div>
+          <div class="label">${draft.caption || "No Caption Generated Yet"}</div>
+          <div class="label">Created ${formatDate(draft.created_at)}</div>
+          <div class="action-row">
+            <button class="btn btn-primary" data-approve-draft="${draft.id}">Approve Draft</button>
+            <button class="btn btn-danger" data-discard-draft="${draft.id}">Discard</button>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function bindSessionDraftActions() {
+  document.querySelectorAll("[data-approve-draft]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const draftId = button.getAttribute("data-approve-draft");
+      await apiFetch(`/social/drafts/${draftId}/approve`, {
+        method: "POST",
+        loaderTitle: "Approving Session Draft",
+        loaderSubtitle: "Saving Approved Content To The Permanent Queue",
+      });
+      showToast("Draft Approved");
+      await Promise.all([loadMetrics(), loadDrafts(), loadPosts()]);
+    });
+  });
+
+  document.querySelectorAll("[data-discard-draft]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const draftId = button.getAttribute("data-discard-draft");
+      await apiFetch(`/social/drafts/${draftId}`, {
+        method: "DELETE",
+        loaderTitle: "Discarding Session Draft",
+        loaderSubtitle: "Removing The Temporary Draft",
+      });
+      showToast("Draft Discarded");
+      await Promise.all([loadMetrics(), loadDrafts()]);
+    });
+  });
+}
+
+function renderContentCreatorPanel() {
+  const title = document.getElementById("content-creator-title");
+  const description = document.getElementById("content-creator-description");
+  const slot = document.getElementById("trend-list");
+  if (!slot) {
+    return;
+  }
+
+  if (shouldShowTrendHistoryOnly()) {
+    if (title) {
+      title.textContent = "Trend Search History";
+    }
+    if (description) {
+      description.textContent = "Past Discovery Runs Stay Visible Here After Session Drafts Are Approved, Discarded, Or Expire";
+    }
+    slot.innerHTML = renderTrendSearchHistory();
+    return;
+  }
+
+  if (title) {
+    title.textContent = "Session Drafts";
+  }
+  if (description) {
+    description.textContent = "Temporary AI Drafts Stay In Redis For 30 Minutes Until You Approve Or Discard Them";
+  }
+  slot.innerHTML = renderSessionDraftCards();
+  bindSessionDraftActions();
 }
 
 async function fetchLatestTrendWorkflow() {
@@ -123,7 +258,7 @@ function startTrendPolling(jobId) {
       setCurrentTrendJob(job);
       if (job.status === "completed") {
         notifyJobStatus("completed", "Trend Discovery Completed");
-        await Promise.all([loadMetrics(), loadTrends()]);
+        await Promise.all([loadMetrics(), loadDrafts(), loadPosts()]);
       } else if (job.status === "stopped") {
         notifyJobStatus("stopped", "Trend Discovery Stopped");
       } else {
@@ -181,7 +316,8 @@ function renderPlatformCheckboxes() {
 function renderPlatformHealth() {
   const platformCounts = SOCIAL_PLATFORMS.map((platform) => ({
     platform,
-    drafts: socialPosts.filter((post) => post.platform === platform && post.approval_status !== "approved").length,
+    drafts: socialDrafts.filter((draft) => draft.platform === platform).length,
+    approved: socialPosts.filter((post) => post.platform === platform && post.publish_status !== "published").length,
     published: socialPosts.filter((post) => post.platform === platform && post.publish_status === "published").length,
   }));
 
@@ -190,7 +326,7 @@ function renderPlatformHealth() {
       (item) => `
         <div class="settings-item">
           <span class="label">${titleCase(item.platform)}</span>
-          <strong>${item.drafts} Drafts | ${item.published} Published</strong>
+          <strong>${item.drafts} Session | ${item.approved} Queue | ${item.published} Published</strong>
         </div>
       `
     )
@@ -219,10 +355,10 @@ document.addEventListener("DOMContentLoaded", async () => {
               <input name="topic" type="text" placeholder=" " value="Small Business Marketing" required />
               <label>Trend Topic</label>
             </div>
-            <div class="field">
-              <label>Platform Selection</label>
+            <fieldset class="field checkbox-fieldset">
+              <legend>Platform Selection</legend>
               <div class="checkbox-grid">${renderPlatformCheckboxes()}</div>
-            </div>
+            </fieldset>
             <div class="field floating-field">
               <input name="limit" type="number" min="1" max="20" value="8" placeholder=" " />
               <label>Trend Limit</label>
@@ -244,7 +380,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           <div class="section-header">
             <div>
               <h2>Publishing Readiness</h2>
-              <p>Current Platform Post Counts And Queue Status Based On Stored Social Posts</p>
+              <p>Session Draft Counts, Approved Queue Volume, And Published Output By Platform</p>
             </div>
           </div>
           <div id="platform-health" class="settings-list"></div>
@@ -254,8 +390,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         <div class="card">
           <div class="toolbar">
             <div>
-              <h2>Content Creator</h2>
-              <p>Generate New Drafts From Ranked Trends</p>
+              <h2 id="content-creator-title">Session Drafts</h2>
+              <p id="content-creator-description">Temporary AI Drafts Live Here Until You Approve Them</p>
             </div>
             <button class="btn btn-secondary" id="refresh-social">Refresh Board</button>
           </div>
@@ -274,15 +410,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     `,
   });
 
-  async function loadMetrics() {
+  loadMetrics = async function loadMetrics() {
     socialMetrics = await apiFetch("/social/dashboard", {
       loaderTitle: "Loading Social Analytics",
       loaderSubtitle: "Preparing Social Studio Metrics",
     });
 
     document.getElementById("social-summary").innerHTML = `
-      <article class="summary-card"><span class="metric-icon">${iconMarkup("social")}</span><div><div class="label">Tracked Trends</div><strong>${socialMetrics.tracked_trends || 0}</strong><p>Trend Records Available For Creation</p></div></article>
-      <article class="summary-card"><span class="metric-icon">${iconMarkup("dashboard")}</span><div><div class="label">Draft Queue</div><strong>${socialMetrics.draft_posts || 0}</strong><p>Posts Waiting For Review Or Approval</p></div></article>
+      <article class="summary-card"><span class="metric-icon">${iconMarkup("social")}</span><div><div class="label">Session Drafts</div><strong>${socialMetrics.session_drafts || 0}</strong><p>Temporary Discovery Drafts Waiting For Approval</p></div></article>
+      <article class="summary-card"><span class="metric-icon">${iconMarkup("dashboard")}</span><div><div class="label">Approved Queue</div><strong>${socialMetrics.approved_posts || 0}</strong><p>Approved Posts Saved Permanently And Ready To Publish</p></div></article>
       <article class="summary-card"><span class="metric-icon">${iconMarkup("reports")}</span><div><div class="label">Published Queue</div><strong>${socialMetrics.published_posts || 0}</strong><p>Posts Scheduled Or Published</p></div></article>
     `;
 
@@ -301,59 +437,27 @@ document.addEventListener("DOMContentLoaded", async () => {
         `
       )
       .join("");
-  }
+  };
 
-  async function loadTrends() {
-    socialTrends = await apiFetch("/social/trends?limit=18", {
-      loaderTitle: "Loading Trends",
-      loaderSubtitle: "Fetching Ranked Social Signals",
-    });
+  loadDrafts = async function loadDrafts() {
+    const [drafts, workflows] = await Promise.all([
+      apiFetch("/social/drafts?limit=18", {
+        loaderTitle: "Loading Session Drafts",
+        loaderSubtitle: "Fetching Temporary AI Draft Options",
+      }),
+      apiFetch("/workflows/", { showLoader: false }),
+    ]);
 
-    document.getElementById("trend-list").innerHTML = socialTrends.length
-      ? socialTrends
-          .map(
-            (trend) => `
-              <article class="trend-card">
-                <div class="meta-row">
-                  <span class="status-chip">${titleCase(trend.platform)}</span>
-                  <span class="status-chip">Priority ${Number(trend.score || 0).toFixed(1)}</span>
-                  <span class="status-chip">${titleCase(trend.status)}</span>
-                </div>
-                <h3>${titleCase(trend.keyword)}</h3>
-                <p>${trend.summary || "No Summary Returned For This Trend Yet"}</p>
-                <div class="label">Discovered ${formatDate(trend.discovered_at)}</div>
-                <div class="action-row">
-                  <select id="platform-${trend.id}">
-                    ${SOCIAL_PLATFORMS.map((platform) => `<option value="${platform}" ${platform === trend.platform ? "selected" : ""}>${titleCase(platform)}</option>`).join("")}
-                  </select>
-                  <button class="btn btn-primary" data-create-post="${trend.id}">Generate Draft</button>
-                </div>
-              </article>
-            `
-          )
-          .join("")
-      : '<div class="empty">No Trends Discovered Yet. Run Discovery To Populate The Studio.</div>';
+    socialDrafts = drafts;
+    trendSearchHistory = buildTrendHistory(workflows.recent_runs || []);
+    renderContentCreatorPanel();
+    renderPlatformHealth();
+  };
 
-    document.querySelectorAll("[data-create-post]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const trendId = Number(button.getAttribute("data-create-post"));
-        const platform = document.getElementById(`platform-${trendId}`).value;
-        await apiFetch("/social/posts", {
-          method: "POST",
-          body: JSON.stringify({ trend_id: trendId, platform }),
-          loaderTitle: "Generating Social Draft",
-          loaderSubtitle: "Creating Platform Specific Content",
-        });
-        showToast("Draft Generated Successfully");
-        await Promise.all([loadMetrics(), loadPosts()]);
-      });
-    });
-  }
-
-  async function loadPosts() {
+  loadPosts = async function loadPosts() {
     socialPosts = await apiFetch("/social/posts?limit=18", {
-      loaderTitle: "Loading Draft Queue",
-      loaderSubtitle: "Fetching Social Content Drafts",
+      loaderTitle: "Loading Approval Queue",
+      loaderSubtitle: "Fetching Approved And Published Social Content",
     });
 
     document.getElementById("post-list").innerHTML = socialPosts.length
@@ -380,8 +484,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             `
           )
           .join("")
-      : '<div class="empty">No Drafts Yet. Generate Content From A Ranked Trend.</div>';
+      : '<div class="empty">No Approved Posts Yet. Approve A Session Draft To Build The Queue.</div>';
 
+    renderContentCreatorPanel();
     renderPlatformHealth();
 
     document.querySelectorAll("[data-approve-post]").forEach((button) => {
@@ -412,13 +517,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     document.querySelectorAll("[data-regenerate-post]").forEach((button) => {
-      button.addEventListener("click", () => showToast("Generate A New Draft From The Trend Card", "info"));
+      button.addEventListener("click", () => showToast("Run A Fresh Discovery To Generate New Session Drafts", "info"));
     });
 
     document.querySelectorAll("[data-discard-post]").forEach((button) => {
-      button.addEventListener("click", () => showToast("Discard Is Reserved For The Next Iteration", "info"));
+      button.addEventListener("click", async () => {
+        const postId = Number(button.getAttribute("data-discard-post"));
+        await apiFetch(`/social/posts/${postId}`, {
+          method: "DELETE",
+          loaderTitle: "Discarding Draft",
+          loaderSubtitle: "Removing The Draft From Your Queue",
+        });
+        showToast("Draft Discarded");
+        await Promise.all([loadMetrics(), loadPosts()]);
+      });
     });
-  }
+  };
 
   document.getElementById("social-discovery-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -506,9 +620,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.getElementById("refresh-social").addEventListener("click", async () => {
-    await Promise.all([loadMetrics(), loadTrends(), loadPosts()]);
+    await Promise.all([loadMetrics(), loadDrafts(), loadPosts()]);
     showToast("Social Studio Refreshed", "info");
   });
 
-  await Promise.all([loadMetrics(), loadTrends(), loadPosts(), restoreTrendJobState()]);
+  await Promise.all([loadMetrics(), loadDrafts(), loadPosts(), restoreTrendJobState()]);
 });

@@ -46,7 +46,8 @@ class HubSpotClient:
     def _updated_after_value(updated_after: datetime | None) -> str | None:
         if updated_after is None:
             return None
-        return updated_after.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        normalized = updated_after.astimezone(UTC) if updated_after.tzinfo else updated_after.replace(tzinfo=UTC)
+        return normalized.isoformat().replace("+00:00", "Z")
 
     def list_contacts(self, *, limit: int = 100, after: str | None = None, updated_after: datetime | None = None) -> dict[str, Any]:
         params = {

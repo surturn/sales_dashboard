@@ -67,8 +67,14 @@ def send_outreach_for_lead(
         {
             "first_name": lead.first_name,
             "last_name": lead.last_name,
+            "full_name": lead.name,
+            "email": lead.email,
             "company": lead.company,
+            "company_domain": lead.company_domain,
+            "linkedin_url": lead.linkedin_url,
             "title": lead.title,
+            "industry": lead.industry,
+            "source": lead.source,
         }
     )
     result = email_sender.send_email(to=lead.email or "", subject=subject, body=body)

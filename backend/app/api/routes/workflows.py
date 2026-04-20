@@ -64,6 +64,7 @@ def list_workflows(request: Request, current_user: User = Depends(get_current_us
                 "started_at": run.started_at.isoformat(),
                 "completed_at": run.completed_at.isoformat() if run.completed_at else None,
                 "error_message": run.error_message,
+                "payload": json.loads(run.payload or "{}") if run.payload else {},
             }
             for run in recent_runs
         ],

@@ -20,17 +20,26 @@ def _parse_hubspot_datetime(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
-        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+        normalized = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+        return normalized.replace(tzinfo=None)
     text_value = str(value).strip()
     if text_value.isdigit():
         try:
-            return datetime.fromtimestamp(int(text_value) / 1000, tz=UTC)
+            return datetime.fromtimestamp(int(text_value) / 1000, tz=UTC).replace(tzinfo=None)
         except (TypeError, ValueError, OSError):
             return None
     try:
-        return datetime.fromisoformat(text_value.replace("Z", "+00:00")).astimezone(UTC)
+        return datetime.fromisoformat(text_value.replace("Z", "+00:00")).astimezone(UTC).replace(tzinfo=None)
     except ValueError:
         return None
+
+
+def _normalize_sync_timestamp(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 def _complete_run(
@@ -47,6 +56,7 @@ def _complete_run(
     run.records_processed = records_processed
     run.records_created = records_created
     run.completed_at = datetime.utcnow()
+    run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3) if run.started_at else None
     run.payload = json.dumps(payload)
     run.error_message = error_message
     db.add(run)
@@ -122,7 +132,7 @@ def sync_contacts_incremental(
 ) -> dict[str, Any]:
     client = client or HubSpotClient()
     sync_state = get_sync_state(db)
-    last_sync_before = sync_state.last_contact_sync
+    last_sync_before = _normalize_sync_timestamp(sync_state.last_contact_sync)
     run = create_workflow_run(
         db,
         workflow_name="hubspot-contact-sync",
@@ -158,7 +168,7 @@ def sync_contacts_incremental(
             if modified_at and (max_seen_timestamp is None or modified_at > max_seen_timestamp):
                 max_seen_timestamp = modified_at
 
-        sync_state.last_contact_sync = max_seen_timestamp or datetime.now(UTC)
+        sync_state.last_contact_sync = _normalize_sync_timestamp(max_seen_timestamp) or datetime.utcnow()
         db.add(sync_state)
         db.commit()
         _complete_run(
@@ -202,7 +212,7 @@ def sync_deals_incremental(
 ) -> dict[str, Any]:
     client = client or HubSpotClient()
     sync_state = get_sync_state(db)
-    last_sync_before = sync_state.last_deal_sync
+    last_sync_before = _normalize_sync_timestamp(sync_state.last_deal_sync)
     run = create_workflow_run(
         db,
         workflow_name="hubspot-deal-sync",
@@ -238,7 +248,7 @@ def sync_deals_incremental(
             if modified_at and (max_seen_timestamp is None or modified_at > max_seen_timestamp):
                 max_seen_timestamp = modified_at
 
-        sync_state.last_deal_sync = max_seen_timestamp or datetime.now(UTC)
+        sync_state.last_deal_sync = _normalize_sync_timestamp(max_seen_timestamp) or datetime.utcnow()
         db.add(sync_state)
         db.commit()
         _complete_run(
@@ -281,7 +291,7 @@ def sync_companies_incremental(
 ) -> dict[str, Any]:
     client = client or HubSpotClient()
     sync_state = get_sync_state(db)
-    last_sync_before = sync_state.last_company_sync
+    last_sync_before = _normalize_sync_timestamp(sync_state.last_company_sync)
     run = create_workflow_run(
         db,
         workflow_name="hubspot-company-sync",
@@ -303,7 +313,7 @@ def sync_companies_incremental(
             if modified_at and (max_seen_timestamp is None or modified_at > max_seen_timestamp):
                 max_seen_timestamp = modified_at
 
-        sync_state.last_company_sync = max_seen_timestamp or datetime.now(UTC)
+        sync_state.last_company_sync = _normalize_sync_timestamp(max_seen_timestamp) or datetime.utcnow()
         db.add(sync_state)
         db.commit()
         _complete_run(

@@ -29,7 +29,7 @@ def discover_social_trends_task(
                 )
                 db.refresh(run)
                 if run.status == "stopped":
-                    return {"status": "stopped", "count": 0, "trend_ids": []}
+                    return {"status": "stopped", "count": 0, "draft_ids": []}
         return discover_trends(
             db,
             topic=topic or settings.SOCIAL_DEFAULT_TOPIC,

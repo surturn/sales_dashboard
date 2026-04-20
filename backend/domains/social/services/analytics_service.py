@@ -6,28 +6,27 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.core.cache import CacheBackend, build_cache_key
 from backend.domains.social.models.social_post import SocialPost
-from backend.domains.social.models.social_trend import SocialTrend
+from backend.services.draft_session import DraftSessionService
 from backend.services.n8n_client import N8NClient
 
 
 def build_social_metrics(db: Session, user_id: int | None = None) -> dict:
-    trend_scope = (
-        SocialTrend.user_id.is_(None)
-        if user_id is None
-        else or_(SocialTrend.user_id == user_id, SocialTrend.user_id.is_(None))
-    )
     post_scope = (
         SocialPost.user_id.is_(None)
         if user_id is None
         else or_(SocialPost.user_id == user_id, SocialPost.user_id.is_(None))
     )
+    session_drafts = len(DraftSessionService().list_drafts(user_id))
+    approved_posts = db.scalar(select(func.count(SocialPost.id)).where(post_scope, SocialPost.approval_status == "approved")) or 0
+    published_posts = (
+        db.scalar(select(func.count(SocialPost.id)).where(post_scope, SocialPost.publish_status.in_(("published", "scheduled")))) or 0
+    )
     return {
-        "tracked_trends": db.scalar(select(func.count(SocialTrend.id)).where(trend_scope)) or 0,
-        "draft_posts": db.scalar(select(func.count(SocialPost.id)).where(post_scope, SocialPost.approval_status == "draft")) or 0,
-        "published_posts": db.scalar(
-            select(func.count(SocialPost.id)).where(post_scope, SocialPost.publish_status.in_(("published", "scheduled")))
-        )
-        or 0,
+        "session_drafts": session_drafts,
+        "approved_posts": approved_posts,
+        "published_posts": published_posts,
+        "tracked_trends": session_drafts,
+        "draft_posts": approved_posts,
     }
 
 
