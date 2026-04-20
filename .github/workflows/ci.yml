@@ -76,7 +76,7 @@ jobs:
             --junit-xml=test-results.xml \
             --cov=backend \
             --cov-report=xml \
-            --cov-report=term-summary
+            --cov-report=term-missing
 
       - name: Upload test results
         if: always()
