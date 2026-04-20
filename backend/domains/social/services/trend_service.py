@@ -291,16 +291,10 @@ def discover_trends(
         run.status = "completed"
         run.records_processed = len(raw_trends)
         run.records_created = len(stored_ids)
-<<<<<<< HEAD
-        run.completed_at = datetime.utcnow()
-        run.execution_time = round((run.completed_at - run.started_at).total_seconds(), 3)
-        run.payload = json.dumps({"topic": topic, "platforms": platforms, "draft_ids": stored_ids, "count": len(stored_ids)})
-=======
         run.completed_at = datetime.now(timezone.utc)
         et = elapsed_seconds(run.started_at, run.completed_at)
         run.execution_time = round(et, 3) if et is not None else None
         run.payload = json.dumps({"topic": topic, "platforms": platforms, "trend_ids": stored_ids, "count": len(stored_ids)})
->>>>>>> 06ec1c7d04a51b940ca88c72f433f7e6acc0cc1f
         db.add(run)
         db.commit()
         cache.delete(build_cache_key("dashboard", "social", user_id or "global"))
